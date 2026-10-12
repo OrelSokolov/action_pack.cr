@@ -1,0 +1,31 @@
+ck_plain_set	"user_name=david; path=/"
+ck_plain_escape_set	"q=a%2Bb%2Fc%3Dd+e%25f; path=/"
+ck_opt_expires	"login=XJ-122; path=/; expires=Tue, 15 Oct 2030 05:00:00 GMT"
+ck_opt_httponly	"s=v; path=/; httponly"
+ck_opt_secure_http	""
+ck_opt_secure_https	"s=v; path=/; secure"
+ck_opt_samesite_none	"s=v; path=/; samesite=none"
+ck_opt_samesite_lax	"s=v; path=/; samesite=lax"
+ck_opt_samesite_strict	"s=v; path=/; samesite=strict"
+ck_opt_domain	"s=v; domain=example.com; path=/"
+ck_opt_path	"s=v; path=/app"
+ck_opt_combo	"c=v; domain=example.org; path=/; expires=Thu, 02 Jan 2031 03:04:05 GMT; httponly; samesite=strict"
+ck_delete_plain	"gone=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT"
+ck_delete_path	"x=; path=/app; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT"
+ck_signed_int_set	"user_id=eyJfcmFpbHMiOnsibWVzc2FnZSI6Ik1USXoiLCJleHAiOm51bGwsInB1ciI6ImNvb2tpZS51c2VyX2lkIn19--b6f6da86ce69d774bca07a3f4bfef0127d2023ff; path=/"
+ck_signed_str_set	"name=eyJfcmFpbHMiOnsibWVzc2FnZSI6IkltUmhkbWxrSWc9PSIsImV4cCI6bnVsbCwicHVyIjoiY29va2llLm5hbWUifX0%3D--bc3be8cfaf9a306c06366686b8a7cb8cb9f68bbd; path=/"
+ck_signed_expiring_set	"login=eyJfcmFpbHMiOnsibWVzc2FnZSI6IklsaEtMVEV5TWlJPSIsImV4cCI6IjIwMzAtMTAtMTVUMDU6MDA6MDAuMDAwWiIsInB1ciI6ImNvb2tpZS5sb2dpbiJ9fQ%3D%3D--4ae9f66588cf182cf19623b264a18bdfd8db63cd; path=/; expires=Tue, 15 Oct 2030 05:00:00 GMT"
+ck_signed_read_int	123
+ck_signed_read_str	"david"
+ck_signed_raw_read	"eyJfcmFpbHMiOnsibWVzc2FnZSI6IkltUmhkbWxrSWc9PSIsImV4cCI6bnVsbCwicHVyIjoiY29va2llLm5hbWUifX0=--bc3be8cfaf9a306c06366686b8a7cb8cb9f68bbd"
+ck_signed_tamper_read	nil
+ck_signed_purpose_mismatch	nil
+ck_encrypted_fixture_int	"yEf0vDO1C08dykcnVBOA450RWbbdZ7gTJFHRnP1bwxIcaXYsUAn6pPyKzV8xQIr4WhY5s1FZUIhJUrRFQc9GyQ==--NkqV+gEWeajrfXoo--fKwVMRYKIYRnRhtBBXXFQA=="
+ck_encrypted_read_int	45
+ck_encrypted_tamper_read	nil
+ck_encrypted_purpose_mismatch	nil
+ck_encrypted_fixture_str	"QV+7Jl3PA/3yYyx5Td8eDeuY9+2N8EYQKarwL8Qa3FeKNhc4JS7MukLGZvbRp2wt7xu3+lOqMAVGXbzBVWDHXn5BLmg6xLP6zA==--riku1//DnPKQzdfe--10CauN9aNOq5jdzgS3DgLw=="
+ck_encrypted_read_str	"top secret"
+ck_encrypted_format	"ok"
+ck_permanent_signed	"ok"
+ck_permanent_plain	"ok"

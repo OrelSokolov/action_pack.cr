@@ -1,0 +1,28 @@
+sse_data	"data: foo\n\n"
+sse_data_multiline	"data: line1\ndata: line2\ndata: \n\n"
+sse_json_object	"data: {\"name\":\"John\"}\n\n"
+sse_json_nested	"data: {\"a\":[1,2],\"b\":null}\n\n"
+sse_opts_order	"retry: 500\nevent: greet\nid: 10\ndata: x\n\n"
+sse_ctor_defaults	"retry: 300\nevent: event-name\ndata: x\n\n"
+sse_write_overrides_ctor	"retry: 500\nevent: b\ndata: x\n\n"
+sse_falsy_id_omitted	"data: x\n\n"
+sse_close_closes_stream	true
+buffer_queue_size_default	10
+buffer_write_headers	no-cache|cl:nil|committed:true
+buffer_write_returns_bytesize	6
+buffer_writeln_appends	"tick\n"
+buffer_writeln_keeps_trailing	"tick\n"
+buffer_backpressure_blocks	true
+buffer_backpressure_unblocks	"c0"|unblocked
+buffer_write_after_abort	raise:ClientDisconnected
+buffer_ignore_disconnect	1
+buffer_connected_after_abort	truefalse
+buffer_closed_write	raise:closed
+transport_chunked_status_headers	200|cc:no-cache|cl:false|te:chunked|ct:text/plain
+transport_chunked_frames	2:"hello "|"world"
+transport_sse_wire	text/event-stream|cc:no-cache|frames:"data: a\n\n"|"retry: 500\nevent: greet\nid: 10\ndata: {\"name\":\"John\"}\n\n"
+transport_send_stream	200|ct:text/csv|cd:attachment; filename="subscribers.csv"; filename*=UTF-8''subscribers.csv|cc:no-cache|body:"6\r\nemail\n\r\n6\r\na@b.c\n\r\n0\r\n\r\n"
+transport_error_before_commit_500	500
+transport_error_after_commit_partial	"partial"
+transport_http10_no_chunked	te:false|body:"hello world"
+transport_disconnect_cancels_action	got:true|state:rescued:ClientDisconnected

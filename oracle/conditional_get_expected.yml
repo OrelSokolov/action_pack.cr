@@ -1,0 +1,20 @@
+fw_etag_status	200
+fw_etag_header_format	"W/\"HEX\""
+fw_etag_body	"etag-body"
+fw_etag_match_304	304
+fw_etag_match_body	""
+fw_etag_match_cc	"max-age=0, private, must-revalidate"
+fw_etag_miss_200	200
+fw_strong_header_format	"\"HEX\""
+fw_lm_header	"Thu, 01 Jan 2026 12:00:00 GMT"
+fw_lm_match_304	304
+fw_lm_older_200	200
+fw_lm_newer_304	304
+fw_both_cache_control	"public"
+fw_both_inm_wins_304	304
+fw_both_inm_miss_200	200
+fw_stale_first_body	"stale-body"
+fw_stale_fresh_304	304
+fw_stale_fresh_body	""
+fw_etag_cc_200	"max-age=0, private, must-revalidate"
+fw_etag_hex	"W/\"3bfc269594ef649228e9a74bab00f042\""

@@ -1,0 +1,10 @@
+version: 2.0
+shards:
+  action_view_cr:
+    path: ../action_view.cr
+    version: 0.1.0
+
+  active_support_cr:
+    path: ../active_support.cr
+    version: 0.1.0
+

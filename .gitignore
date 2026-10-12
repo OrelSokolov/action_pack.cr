@@ -1,0 +1,6 @@
+/lib/
+/.shards/
+/tmp/
+*.dwarf
+/action_pack_cr/
+/action_pack_cr

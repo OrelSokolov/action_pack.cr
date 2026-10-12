@@ -1,0 +1,17 @@
+default_first_3_pass	200,200,200
+default_4th_is_429	429
+default_5th_still_429	429
+separate_ip_buckets	200
+instrument_payload_counts	4,5
+instrument_cache_key	rate-limit:plain:10.0.0.1
+instrument_payload_keys	by,cache_key,count,name,request,scope,to,within
+custom_by_header_buckets	200,200,200
+custom_by_429_cache_key	rate-limit:by_header:key-a
+with_symbol_handler	503
+named_two_limits	200,429
+named_limits_share_request	short:2
+scope_shared_between_controllers	200,200,429,429
+only_option_index_unlimited	200,200,200,200
+only_option_create_limited	200,200,429
+expires_window_semantics	200,429,200
+null_store_no_limit	200,200,200,200
