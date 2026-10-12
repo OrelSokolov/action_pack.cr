@@ -4,3 +4,5 @@
 *.dwarf
 /action_pack_cr/
 /action_pack_cr
+/shard.lock
+/shard.override.yml
