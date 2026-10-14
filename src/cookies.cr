@@ -208,8 +208,10 @@ module ActionController
       header = @context.request.headers["Cookie"]?
       return jar unless header
       header.split(';').each do |part|
-        key, value = part.split('=', 2)
-        raw = value.try(&.strip) || ""
+        # flag-cookie / пустой элемент: без '=' значение пустое (как Rack —
+        # деструктуризация в Ruby подставляет nil, не IndexError).
+        key, eq, value = part.partition('=')
+        raw = eq.empty? ? "" : value.strip
         # write() URL-encodes values (base64 session payloads contain
         # +/=); decode on read so the round trip is stable.
         decoded = begin
