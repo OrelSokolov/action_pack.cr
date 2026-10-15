@@ -89,7 +89,13 @@ module ActionController
     #                      only: [...], except: [...], if:, unless:
     # `with:` — Crystal-ключевое слово, читается из **opts (как в
     # rate_limit). Дефолт — :null_session, как в геме.
+    # Неизвестные ключи — compile error: молчаливое игнорирование (как
+    # `using:` до 0.1.2) маскирует неработающую защиту.
     macro protect_from_forgery(only = nil, except = nil, using = nil, **opts)
+      {% unknown_opts = opts.keys.reject { |k| ["with", "if", "unless"].includes?(k.id.stringify) } %}
+      {% unless unknown_opts.empty? %}
+        {% raise "protect_from_forgery: unknown option(s) #{unknown_opts.join(", ")} (supported: with:, if:, unless:, only:, except:, using:)" %}
+      {% end %}
       {% strategy = opts["with"] || :null_session %}
       {% unless [:null_session, :reset_session, :exception].includes?(strategy) %}
         {% raise "protect_from_forgery: unsupported with: #{strategy} (use :null_session, :reset_session or :exception)" %}
