@@ -66,13 +66,23 @@ module ActionController
     # --- filters ------------------------------------------------------
 
     # before_action :authenticate, only: [:index] / except: / if: / unless:
+    # Unknown keys are a compile error (see protect_from_forgery): a
+    # silently ignored option masks a filter that never runs as intended.
     macro before_action(*names, **opts)
+      {% unknown_opts = opts.keys.reject { |k| ["only", "except", "if", "unless"].includes?(k.id.stringify) } %}
+      {% unless unknown_opts.empty? %}
+        {% raise "before_action: unknown option(s) #{unknown_opts.join(", ")} (supported: only:, except:, if:, unless:)" %}
+      {% end %}
       {% for name in names %}
         {% ActionController::FILTERS << { @type, name, opts } %}
       {% end %}
     end
 
     macro skip_before_action(*names, **opts)
+      {% unknown_opts = opts.keys.reject { |k| ["only", "except", "if", "unless"].includes?(k.id.stringify) } %}
+      {% unless unknown_opts.empty? %}
+        {% raise "skip_before_action: unknown option(s) #{unknown_opts.join(", ")} (supported: only:, except:, if:, unless:)" %}
+      {% end %}
       {% for name in names %}
         {% skip_name = "__skip_#{name.id}".id %}
         {% ActionController::FILTERS << { @type, skip_name.symbolize, opts } %}
@@ -83,6 +93,10 @@ module ActionController
     # The filter method (or block) receives the action continuation via
     # `yield` and MUST call it.
     macro around_action(*names, **opts, &block)
+      {% unknown_opts = opts.keys.reject { |k| ["only", "except", "if", "unless"].includes?(k.id.stringify) } %}
+      {% unless unknown_opts.empty? %}
+        {% raise "around_action: unknown option(s) #{unknown_opts.join(", ")} (supported: only:, except:, if:, unless:)" %}
+      {% end %}
       {% for name in names %}
         {% ActionController::AROUND_FILTERS << { @type, name, opts } %}
       {% end %}
@@ -117,6 +131,10 @@ module ActionController
     end
 
     macro rescue_from(exception, **opts)
+      {% unknown_opts = opts.keys.reject { |k| ["with"].includes?(k.id.stringify) } %}
+      {% unless unknown_opts.empty? %}
+        {% raise "rescue_from: unknown option(s) #{unknown_opts.join(", ")} (supported: with:)" %}
+      {% end %}
       {% handler = opts[:with] || opts["with"] %}
       {% raise "rescue_from needs a `with:` handler" unless handler %}
       {% ActionController::RESCUERS << { @type, exception, handler } %}

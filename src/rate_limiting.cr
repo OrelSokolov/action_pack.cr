@@ -49,7 +49,13 @@ module ActionController
 
     # `with:` is a Crystal keyword (like `as:` in routes), so it is read
     # from **opts — the call site still reads `with: :handler`.
+    # Unknown **opts keys are a compile error (see protect_from_forgery);
+    # the named params above already reject unknown names on their own.
     macro rate_limit(to, within, only = nil, except = nil, by = nil, store = nil, name = nil, scope = nil, **opts)
+      {% unknown_opts = opts.keys.reject { |k| ["with"].includes?(k.id.stringify) } %}
+      {% unless unknown_opts.empty? %}
+        {% raise "rate_limit: unknown option(s) #{unknown_opts.join(", ")} (supported: to:, within:, only:, except:, by:, store:, name:, scope:, with:)" %}
+      {% end %}
       {% with_handler = opts["with"] %}
       {% limit_id = "__rate_limit_#{ActionController::RateLimiting::LIMITS.size}".id %}
       {% limit_sym = limit_id.symbolize %}
