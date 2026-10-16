@@ -92,6 +92,140 @@ describe "CRails::Routes" do
     set.match("DELETE", "/posts/42").should_not be_nil
     set.match("GET", "/posts/new").not_nil!.route.action.should eq("new")
   end
+
+  it "resources honors only/except, controller and param overrides" do
+    set = CRails::Routes::RouteSet.new
+    set.draw do
+      scope path: "rooms" do
+        resources :opens, only: [:new, :create, :edit, :update],
+          controller: "rooms", param: :room_id, defaults: {kind: "opens"}
+      end
+    end
+    table = set.routes.map { |r| {r.verb, r.pattern, r.controller, r.action} }
+    table.should eq([
+      {"GET", "/rooms/opens/new", "rooms", "new"},
+      {"GET", "/rooms/opens/:room_id/edit", "rooms", "edit"},
+      {"POST", "/rooms/opens", "rooms", "create"},
+      {"PATCH", "/rooms/opens/:room_id", "rooms", "update"},
+      {"PUT", "/rooms/opens/:room_id", "rooms", "update"},
+    ])
+    set.routes.each { |r| r.defaults.should eq({"kind" => "opens"}) }
+    match = set.match("POST", "/rooms/opens").not_nil!
+    match.params["kind"].should eq("opens")
+    set.match("GET", "/rooms/opens/2/edit").not_nil!.params["room_id"].should eq("2")
+  end
+
+  it "nested resources draw member paths with parent params" do
+    set = CRails::Routes::RouteSet.new
+    set.draw do
+      resources :rooms, only: [:show, :destroy] do
+        resources :messages, except: [:new], param: :message_id
+        get "involvement", to: "rooms#involvement"
+        get "@:message_id", to: "rooms#show", as: :at_message
+      end
+    end
+    table = set.routes.map { |r| {r.verb, r.pattern, r.controller, r.action, r.name} }
+    table.should contain({"GET", "/rooms/:id", "rooms", "show", "room"})
+    table.should contain({"GET", "/rooms/:id/messages", "messages", "index", "room_messages"})
+    table.should contain({"GET", "/rooms/:id/messages/:message_id/edit", "messages", "edit", "edit_room_message"})
+    table.should contain({"DELETE", "/rooms/:id/messages/:message_id", "messages", "destroy", nil})
+    table.should contain({"GET", "/rooms/:id/involvement", "rooms", "involvement", nil})
+    table.should_not contain({"GET", "/rooms/:id/messages/new", "messages", "new", "new_room_message"})
+    match = set.match("GET", "/rooms/1/messages/42").not_nil!
+    match.params["id"].should eq("1")
+    match.params["message_id"].should eq("42")
+    set.match("GET", "/rooms/1/@99").not_nil!.route.name.should eq("room_at_message")
+  end
+
+  it "member/collection blocks and on: option scope custom routes" do
+    set = CRails::Routes::RouteSet.new
+    set.draw do
+      resources :searches, only: [:index, :create] do
+        delete "clear", on: :collection
+        post "refresh", on: :member
+      end
+    end
+    set.match("DELETE", "/searches/clear").should_not be_nil
+    set.match("POST", "/searches/5/refresh").not_nil!.params["id"].should eq("5")
+  end
+
+  it "resource draws singular routes with a pluralized controller" do
+    set = CRails::Routes::RouteSet.new
+    set.draw do
+      resource :session, only: [:new, :create, :destroy] do
+        resources :transfers, only: [:show, :update]
+      end
+    end
+    table = set.routes.map { |r| {r.verb, r.pattern, r.controller, r.action} }
+    table.should eq([
+      {"GET", "/session/new", "sessions", "new"},
+      {"POST", "/session", "sessions", "create"},
+      {"DELETE", "/session", "sessions", "destroy"},
+      {"GET", "/session/transfers/:id", "transfers", "show"},
+      {"PATCH", "/session/transfers/:id", "transfers", "update"},
+      {"PUT", "/session/transfers/:id", "transfers", "update"},
+    ])
+  end
+
+  it "scope nests paths, names and controller modules" do
+    set = CRails::Routes::RouteSet.new
+    set.draw do
+      scope path: "session", as: "session" do
+        get "/transfers/:id", to: "session_transfers#show"
+      end
+      scope path: "rooms", as: "rooms" do
+        resources :directs, only: [:new, :create]
+        get "/directs/:room_id/edit", to: "rooms#edit"
+      end
+      scope path: ":bot_key", as: :bot do
+        get "messages", to: "messages#bot_index"
+      end
+    end
+    table = set.routes.map { |r| {r.verb, r.pattern, r.controller, r.action, r.name} }
+    table.should contain({"GET", "/session/transfers/:id", "session_transfers", "show", nil})
+    set.match("GET", "/session/transfers/7").not_nil!.params["id"].should eq("7")
+    table.should contain({"GET", "/rooms/directs/new", "directs", "new", "new_rooms_direct"})
+    table.should contain({"GET", "/rooms/directs/:room_id/edit", "rooms", "edit", nil})
+    table.should contain({"GET", "/:bot_key/messages", "messages", "bot_index", nil})
+  end
+
+  it "namespace prefixes path, module and name" do
+    set = CRails::Routes::RouteSet.new
+    set.draw do
+      namespace :admin do
+        resources :posts, only: [:index]
+        get "/dashboard", to: "stats#show", as: :dashboard
+      end
+    end
+    table = set.routes.map { |r| {r.verb, r.pattern, r.controller, r.action, r.name} }
+    table.should contain({"GET", "/admin/posts", "admin/posts", "index", "admin_posts"})
+    table.should contain({"GET", "/admin/dashboard", "admin/stats", "show", "admin_dashboard"})
+  end
+
+  it "scope module prefixes explicit to: targets unless controller is absolute" do
+    set = CRails::Routes::RouteSet.new
+    set.draw do
+      scope module: "rooms" do
+        get "/refresh", to: "refreshes#show"
+        get "/settings", to: "/rooms#settings"
+      end
+    end
+    table = set.routes.map { |r| {r.controller, r.action} }
+    table.should contain({"rooms/refreshes", "show"})
+    table.should contain({"rooms", "settings"})
+  end
+
+  it "defaults fill params the path leaves unset; segment params win" do
+    set = CRails::Routes::RouteSet.new
+    set.draw do
+      scope defaults: {kind: "opens"} do
+        get "/rooms/:kind/new", to: "rooms#new"
+        get "/rooms/new", to: "rooms#new", as: "literal"
+      end
+    end
+    set.match("GET", "/rooms/closeds/new").not_nil!.params["kind"].should eq("closeds")
+    set.match("GET", "/rooms/new").not_nil!.params["kind"].should eq("opens")
+  end
 end
 
 describe "ActionController::Dispatch codegen" do
