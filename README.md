@@ -76,9 +76,11 @@ Run the suite with `make spec` (or
 
 | Feature | Original | Port | Status |
 |---|---|---|---|
-| `root`, `get/post/patch/put/delete ... to:`, `match via:`, `redirect` | ✅ | Same | ✅ |
-| `resources` / `resource` (`only:, except:, shallow:, concerns:, param:, path:, as:, module:`), `member`/`collection`, nested/shallow routes | ✅ | Compile-time route table + runtime segment matching | ✅ |
-| `namespace`, `scope` (`path:, as:, module:, defaults:, constraints:`), `concern/concerns`, wildcard `*path`, optional `foo(/bar)` | ✅ | Same | ✅ |
+| `root`, verb helpers `get/post/patch/put/delete` (`to:, as:, defaults:, on: member/collection`) | ✅ | Same; inside a `resources` block `to:` may be omitted (controller/action inferred) | ✅ |
+| `resources` / `resource` (`only:, except:, controller:, param:, path:, as:, defaults:`) with block nesting, `member`/`collection` | ✅ | Standard seven routes in Rails draw order; a block nests under the member path (`/rooms/:id/messages`), names follow Rails (`edit_room_message`) | ✅ |
+| `resources` / `resource` `shallow:`, `concerns:`, `concern` | ✅ | Not ported | ❌ |
+| `namespace`, `scope` (`path:, as:, module:, defaults:`) | ✅ | Same; `module:` prefixes `to:` controllers too (leading `/` opts out), `defaults:` fill params the path leaves unset | ✅ |
+| `scope constraints:`, `concern/concerns`, wildcard `*path`, optional segments `foo(/bar)`, `match via:`, route-level `redirect` | ✅ | Not ported | ❌ |
 | Named helpers `posts_path`, `edit_post_path(@post)` | ✅ | Macro-generated from `resources`/`get as:` | ✅ |
 | Polymorphic array URLs `url_for([:edit, @post])` | ✅ | ~70% | 🔶 |
 
