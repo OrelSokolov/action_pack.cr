@@ -334,15 +334,25 @@ module ActionController
         body = request.body.try(&.gets_to_end) || ""
         URI::Params.parse(body).each do |k, v|
           if k.includes?('[') && k.ends_with?(']') && (eq = k.index('['))
-            # nested form keys: post[title]=x -> {"post" => {"title" => "x"}}
-            name = k[0...eq]
-            inner_key = k[(eq + 1)...(k.size - 1)]
-            sub = raw[name]?
+            # nested form keys, Rails-style, arbitrary depth:
+            # post[title]=x -> {"post" => {"title" => "x"}}
+            # a[b][c]=1 -> {"a" => {"b" => {"c" => "1"}}}
+            keys = k[(eq + 1)...(k.size - 1)].split("][")
+            sub = raw[k[0...eq]]?
             unless sub.is_a?(Parameters)
               sub = Parameters.new
-              raw[name] = sub
+              raw[k[0...eq]] = sub
             end
-            sub.as(Parameters)[inner_key] = v
+            node = sub.as(Parameters)
+            keys[0...-1].each do |ik|
+              nxt = node[ik]?
+              unless nxt.is_a?(Parameters)
+                nxt = Parameters.new
+                node[ik] = nxt
+              end
+              node = nxt.as(Parameters)
+            end
+            node[keys.last] = v
           else
             raw[k] = v
           end

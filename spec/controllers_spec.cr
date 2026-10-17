@@ -122,6 +122,12 @@ class EchoController < ApplicationController
   end
 end
 
+class DeepEchoController < ApplicationController
+  def echo
+    render plain: params.to_unsafe_h.inspect
+  end
+end
+
 class ZoneController < ApplicationController
   around_action :set_time_zone
 
@@ -396,6 +402,23 @@ describe "request params" do
     controller.__run_action("echo")
     response.close
     io.to_s.should contain("From Form")
+  end
+
+  it "parses deeply nested form-encoded keys (Rails-style, any depth)" do
+    io = IO::Memory.new
+    request = HTTP::Request.new("POST", "/echo",
+      HTTP::Headers{"Content-Type" => "application/x-www-form-urlencoded"},
+      "account[name]=Acme&account[settings][restrict_room_creation_to_administrators]=true")
+    response = HTTP::Server::Response.new(io)
+    controller = DeepEchoController.new(HTTP::Server::Context.new(request, response))
+    controller.__set_params({} of String => String)
+    controller.__run_action("echo")
+    response.close
+    body = io.to_s
+    body.should contain("Acme")
+    body.should contain("restrict_room_creation_to_administrators")
+    # старый парсер сплющивал вложенность в один плоский ключ "settings][restrict...]"
+    body.should_not contain("][")
   end
 
   it "require raises ParameterMissing for missing key" do
