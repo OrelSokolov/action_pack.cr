@@ -271,6 +271,7 @@ module ActionController
       when :forbidden           then 403
       when :not_found           then 404
       when :unprocessable_content then 422
+      when :unprocessable_entity then 422 # Rails alias (pre-8 name)
       when :internal_server_error then 500
       else
         raise ArgumentError.new("unsupported status symbol: #{status}")
