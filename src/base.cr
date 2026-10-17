@@ -333,6 +333,11 @@ module ActionController
         end
       when /form-urlencoded/
         body = request.body.try(&.gets_to_end) || ""
+        # Re-feed the raw body (как в JSON-ветке): Rack/Rails перематывают
+        # input после form-парсинга — экшены, читающие тело сами (bot-POST
+        # /rooms/:id/:bot_key/messages с curl-подобным Content-Type),
+        # должны видеть байты, а не EOF.
+        request.body = IO::Memory.new(body)
         URI::Params.parse(body).each do |k, v|
           if k.includes?('[') && k.ends_with?(']') && (eq = k.index('['))
             # nested form keys, Rails-style, arbitrary depth:
@@ -401,7 +406,12 @@ module ActionController
         __verify_same_origin_request
         response.headers["Content-Type"] = "application/json; charset=utf-8"
         response.print __render_view_json(action)
-      elsif __request_format == "turbo_stream"
+      elsif __request_format == "turbo_stream" && __ts_template?(action)
+        # turbo_stream-рендер только при наличии #{action}.turbo_stream.erb:
+        # redirect-follow GET от Turbo несёт Accept с обоими форматами
+        # (text/vnd.turbo-stream.html, text/html) — Rails без
+        # turbo_stream-шаблона рендерит HTML-шаблон (lookup идёт по списку
+        # форматов Accept), а не падает. Иначе — HTML-ветка ниже.
         content = __render_view(action, "turbo_stream").to_s
         response.headers["Content-Type"] = "text/vnd.turbo-stream.html; charset=utf-8"
         __verify_same_origin_request
@@ -634,6 +644,24 @@ macro finished
             {% if is_action %}
               {% jb_path = root + "/" + dir + "/" + m.name.stringify + ".json.jbuilder" %}
               {% if (`(test -f #{jb_path} && echo yes) || true`) != "" %}
+            when {{ m.name.stringify }} then true
+              {% end %}
+            {% end %}
+          {% end %}
+          else
+            false
+          end
+        end
+
+        # Есть ли #{action}.turbo_stream.erb: implicit render при
+        # turbo_stream-формате; иначе fallback на HTML (см. __default_render).
+        def __ts_template?(action : String) : Bool
+          case action
+          {% for m in t.methods %}
+            {% is_action = m.args.empty? && !m.name.stringify.starts_with?("__") && m.name.stringify != m.name.stringify.capitalize && !callback_names.includes?(m.name.stringify) %}
+            {% if is_action %}
+              {% ts_path = root + "/" + dir + "/" + m.name.stringify + ".turbo_stream.erb" %}
+              {% if (`(test -f #{ts_path} && echo yes) || true`) != "" %}
             when {{ m.name.stringify }} then true
               {% end %}
             {% end %}

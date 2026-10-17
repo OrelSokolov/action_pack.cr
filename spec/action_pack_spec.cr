@@ -21,10 +21,16 @@ class PostsController < ApplicationController
   def no_template
     @title = "orphan"
   end
+
+  def streamed
+    @title = "TS body"
+  end
 end
 
-private def build_context(method : String, path : String, query : String? = nil) : Tuple(HTTP::Server::Context, IO::Memory)
-  request = HTTP::Request.new(method, path + (query ? "?#{query}" : ""))
+private def build_context(method : String, path : String, query : String? = nil, accept : String? = nil) : Tuple(HTTP::Server::Context, IO::Memory)
+  headers = HTTP::Headers.new
+  headers["Accept"] = accept if accept
+  request = HTTP::Request.new(method, path + (query ? "?#{query}" : ""), headers)
   io = IO::Memory.new
   response = HTTP::Server::Response.new(io)
   {HTTP::Server::Context.new(request, response), io}
@@ -271,6 +277,26 @@ describe "ActionController::Base rendering" do
     expect_raises ActionController::RoutingError do
       run_action(context, action: "nope")
     end
+  end
+
+  it "turbo-stream Accept without .turbo_stream.erb falls back to the HTML template" do
+    # Turbo redirect-follow GET несёт Accept с обоими форматами; Rails без
+    # turbo_stream-шаблона рендерит HTML (lookup по списку форматов), не 404.
+    context, io = build_context("GET", "/posts/1",
+      accept: "text/vnd.turbo-stream.html, text/html, application/xhtml+xml")
+    run_action(context, {"id" => "1"})
+    raw = io.to_s
+    raw.should contain("200")
+    raw.should contain("Content-Type: text/html")
+    raw.should contain("<layout><h1>")
+  end
+
+  it "renders .turbo_stream.erb without layout for turbo-stream Accept when present" do
+    context, io = build_context("GET", "/", accept: "text/vnd.turbo-stream.html, text/html")
+    run_action(context, action: "streamed")
+    context.response.headers["Content-Type"].should contain("text/vnd.turbo-stream.html")
+    io.to_s.should contain("TS body")
+    io.to_s.should_not contain("<layout>")
   end
 
   it "raises RoutingError for missing template" do

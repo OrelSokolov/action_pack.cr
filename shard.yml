@@ -1,5 +1,5 @@
 name: action_pack_cr
-version: 0.2.2
+version: 0.2.3
 crystal: ">= 1.21.0"
 dependencies:
   active_support_cr:
