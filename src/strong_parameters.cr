@@ -16,7 +16,7 @@ require "json"
 
 module ActionController
   class ParameterMissing < Exception
-    getter param : String
+    attr_reader param : String
 
     def initialize(@param : String, message = nil)
       super(message || "param is missing or the value is empty or invalid: #{param}")
@@ -33,7 +33,7 @@ module ActionController
     alias Scalar = String | Int32 | Int64 | Float64 | Bool | Nil
     alias Value = Scalar | Array(Scalar) | Parameters
 
-    getter parameters : Hash(String, Value)
+    attr_reader parameters : Hash(String, Value)
     property? permitted : Bool
 
     def initialize(@parameters : Hash(String, Value) = {} of String => Value,

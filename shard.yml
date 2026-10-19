@@ -1,7 +1,10 @@
 name: action_pack_cr
-version: 0.2.4
+version: 0.2.5
 crystal: ">= 1.21.0"
 dependencies:
+  attr_reader_cr:
+    github: OrelSokolov/attr_reader.cr
+    version: ~> 0.1.0
   active_support_cr:
     github: OrelSokolov/active_support.cr
     version: ~> 0.1.0

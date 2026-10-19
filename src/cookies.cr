@@ -64,13 +64,13 @@ module ActionController
 
   # Атрибуты Set-Cookie для одной cookie (value — уже wire-строка джарба).
   class CookieOptions
-    property value : String
-    property expires : Time?
-    property path : String = "/"
-    property domain : String?
-    property secure : Bool = false
-    property httponly : Bool = false
-    property same_site : Symbol?
+    attr_accessor value : String
+    attr_accessor expires : Time?
+    attr_accessor path : String = "/"
+    attr_accessor domain : String?
+    attr_accessor secure : Bool = false
+    attr_accessor httponly : Bool = false
+    attr_accessor same_site : Symbol?
 
     def initialize(@value : String)
     end
@@ -232,7 +232,7 @@ module ActionController
     def initialize(@parent : Cookies | AbstractCookieJar)
     end
 
-    getter parent
+    attr_reader :parent
 
     def [](name : String) : JSON::Any | String | Nil
       if (data = base[name]?)

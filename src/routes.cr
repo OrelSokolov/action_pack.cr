@@ -1,14 +1,14 @@
 module CRails
   module Routes
     struct Route
-      getter verb : String
-      getter segments : Array(String)
-      getter controller : String # e.g. "welcome"
-      getter action : String     # e.g. "index"
-      getter name : String?      # e.g. "root"
+      attr_reader verb : String
+      attr_reader segments : Array(String)
+      attr_reader controller : String # e.g. "welcome"
+      attr_reader action : String     # e.g. "index"
+      attr_reader name : String?      # e.g. "root"
       # `scope defaults: { ... }` / `resources defaults: { ... }` — params
       # filled in when the path doesn't set them (segment params win).
-      getter defaults : Hash(String, String)
+      attr_reader defaults : Hash(String, String)
 
       def initialize(@verb : String, pattern : String, to : String, @name : String? = nil,
                      @defaults : Hash(String, String) = Hash(String, String).new)
@@ -22,15 +22,15 @@ module CRails
     end
 
     struct Match
-      getter route : Route
-      getter params : Hash(String, String)
+      attr_reader route : Route
+      attr_reader params : Hash(String, String)
 
       def initialize(@route, @params)
       end
     end
 
     class RouteSet
-      getter routes = [] of Route
+      attr_reader routes = [] of Route
 
       # `with ... yield` makes the block a DSL: bare `root`/`get`/...
       # calls inside `draw do ... end` are routed to the Drawer.

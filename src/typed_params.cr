@@ -52,7 +52,7 @@ module ActionController
       alias Type = Nil | Bool | Int32 | Int64 | Float64 | String |
                    Array(Any) | Hash(String, Any) | Parameters
 
-      getter raw : Type
+      attr_reader raw : Type
 
       def initialize(@raw : Type)
       end
@@ -79,7 +79,7 @@ module ActionController
     # Raised by `from`/`<action>_params` on validation failure; the
     # railties rescue ladder maps it to 422 with the errors as JSON.
     class Invalid < Exception
-      getter errors : Hash(String, Any)
+      attr_reader errors : Hash(String, Any)
 
       def initialize(@errors : Hash(String, Any))
         super("invalid parameters")
@@ -98,9 +98,9 @@ module ActionController
     # (coerced values; raw values for failed fields) and error tree.
     class Call(T)
       getter? success : Bool
-      getter value : T?
-      getter output : Hash(String, Any)
-      getter errors : Hash(String, Any)
+      attr_reader value : T?
+      attr_reader output : Hash(String, Any)
+      attr_reader errors : Hash(String, Any)
 
       def initialize(@success : Bool, @value : T?, @output : Hash(String, Any),
                      @errors : Hash(String, Any))
@@ -114,15 +114,15 @@ module ActionController
     # One declared field — the schema tree walked by the Validator
     # (built once at boot from macro-emitted constants).
     class Field
-      getter key : String
-      getter kind : Symbol
+      attr_reader key : String
+      attr_reader kind : Symbol
       getter? required : Bool
       getter? nilable : Bool
-      getter min_size : Int32?
-      getter max_size : Int32?
-      getter gteq : Float64?
-      getter lteq : Float64?
-      getter sub : Array(Field)?
+      attr_reader min_size : Int32?
+      attr_reader max_size : Int32?
+      attr_reader gteq : Float64?
+      attr_reader lteq : Float64?
+      attr_reader sub : Array(Field)?
 
       def initialize(@key : String, @kind : Symbol, @required : Bool = false,
                      @nilable : Bool = false, @min_size : Int32? = nil,
@@ -137,9 +137,9 @@ module ActionController
 
     # Compile-time registry of declared schemas (for the OpenAPI builder).
     class SchemaEntry
-      getter controller : String # route key, e.g. "posts"
-      getter action : String     # e.g. "create"
-      getter fields : Array(Field)
+      attr_reader controller : String # route key, e.g. "posts"
+      attr_reader action : String     # e.g. "create"
+      attr_reader fields : Array(Field)
 
       def initialize(@controller : String, @action : String, @fields : Array(Field))
       end

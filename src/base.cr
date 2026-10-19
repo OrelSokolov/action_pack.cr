@@ -38,8 +38,8 @@ module ActionController
     include ActionView::Helpers
     include ConditionalGet
 
-    getter context : HTTP::Server::Context
-    getter params : Parameters
+    attr_reader context : HTTP::Server::Context
+    attr_reader params : Parameters
 
     def initialize(@context : HTTP::Server::Context)
       @params = Parameters.new

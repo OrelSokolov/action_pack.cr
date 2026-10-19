@@ -79,7 +79,7 @@ module ActionController
     class Stream
       class_property queue_size : Int32 = 10
 
-      getter response : HTTP::Server::Response
+      attr_reader response : HTTP::Server::Response
 
       @mutex : Sync::Mutex
       @has_data : Sync::ConditionVariable
@@ -97,7 +97,7 @@ module ActionController
         @has_space = Sync::ConditionVariable.new(@mutex)
       end
 
-      property ignore_disconnect : Bool
+      attr_accessor ignore_disconnect : Bool
 
       def ignore_disconnect? : Bool
         @ignore_disconnect

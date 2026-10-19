@@ -1,3 +1,4 @@
+require "attr_reader_cr"
 require "html"
 require "ecr"
 require "json"
