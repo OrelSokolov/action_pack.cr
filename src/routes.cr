@@ -9,9 +9,15 @@ module CRails
       # `scope defaults: { ... }` / `resources defaults: { ... }` — params
       # filled in when the path doesn't set them (segment params win).
       attr_reader defaults : Hash(String, String)
+      # "file:line" of the DSL call that drew the route (config/routes.rb)
+      # — the "Source Location" column the Rails dev Routing Error page
+      # shows. Filled from __FILE__/__LINE__ defaults resolved at the
+      # call site, nil for routes emitted without them.
+      attr_reader source : String?
 
       def initialize(@verb : String, pattern : String, to : String, @name : String? = nil,
-                     @defaults : Hash(String, String) = Hash(String, String).new)
+                     @defaults : Hash(String, String) = Hash(String, String).new,
+                     @source : String? = nil)
         @segments = pattern.split("/").reject(&.empty?)
         @controller, @action = to.split("#", 2)
       end
@@ -95,8 +101,8 @@ module CRails
         @default_controllers = [] of String # `delete "clear"` inside a resources block
       end
 
-      def root(to : String) : Nil
-        get "/", to: to, as: "root"
+      def root(to : String, *, file : String = __FILE__, line : Int32 = __LINE__) : Nil
+        get "/", to: to, as: "root", file: file, line: line
       end
 
       # `openapi "/openapi.json"` — mount the built-in document endpoint
@@ -104,8 +110,9 @@ module CRails
       # the drawer call is the only wiring needed. Controller key is
       # "c_rails/open_api": Dispatch.resolve underscores each namespace
       # segment ("CRails" -> "c_rails").
-      def openapi(path : String = "/openapi.json") : Nil
-        get path, to: "c_rails/open_api#show", as: "open_api"
+      def openapi(path : String = "/openapi.json", *,
+                  file : String = __FILE__, line : Int32 = __LINE__) : Nil
+        get path, to: "c_rails/open_api#show", as: "open_api", file: file, line: line
       end
 
       # `scope path: "...", module: "...", as: "...", defaults: {..."` —
@@ -147,11 +154,13 @@ module CRails
       # routes by default — wrap them in `collection { }` (or pass
       # `on: :collection`) for collection scope.
       # `resources :posts` without a block (see the block form below).
-      def resources(name : String | Symbol, **opts) : Nil
-        resources(name, **opts) { }
+      def resources(name : String | Symbol, *, file : String = __FILE__, line : Int32 = __LINE__,
+                    **opts) : Nil
+        resources(name, **opts.merge(file: file, line: line)) { }
       end
 
-      def resources(name : String | Symbol, **opts, &) : Nil
+      def resources(name : String | Symbol, *, file : String = __FILE__, line : Int32 = __LINE__,
+                    **opts, &) : Nil
         name = name.to_s
         res_path = opts["path"]?.try(&.to_s) || name
         controller = opts["controller"]?.try(&.to_s) || name
@@ -164,28 +173,29 @@ module CRails
         singular = as_name.singularize
         ctrl = prefix_module(controller)
 
+        source = "#{file}:#{line}"
         wanted = wanted_actions(opts, RESOURCE_ACTIONS)
         if wanted.includes?("index")
-          emit("GET", base, "#{ctrl}#index", compose_name(as_name), defaults)
+          emit("GET", base, "#{ctrl}#index", compose_name(as_name), defaults, source)
         end
         if wanted.includes?("new")
-          emit("GET", base + ["new"], "#{ctrl}#new", "new_" + (@name_prefix + [singular]).join("_"), defaults)
+          emit("GET", base + ["new"], "#{ctrl}#new", "new_" + (@name_prefix + [singular]).join("_"), defaults, source)
         end
         if wanted.includes?("edit")
-          emit("GET", member + ["edit"], "#{ctrl}#edit", "edit_" + (@name_prefix + [singular]).join("_"), defaults)
+          emit("GET", member + ["edit"], "#{ctrl}#edit", "edit_" + (@name_prefix + [singular]).join("_"), defaults, source)
         end
         if wanted.includes?("show")
-          emit("GET", member, "#{ctrl}#show", compose_name(singular), defaults)
+          emit("GET", member, "#{ctrl}#show", compose_name(singular), defaults, source)
         end
         if wanted.includes?("create")
-          emit("POST", base, "#{ctrl}#create", nil, defaults)
+          emit("POST", base, "#{ctrl}#create", nil, defaults, source)
         end
         if wanted.includes?("update")
-          emit("PATCH", member, "#{ctrl}#update", nil, defaults)
-          emit("PUT", member, "#{ctrl}#update", nil, defaults)
+          emit("PATCH", member, "#{ctrl}#update", nil, defaults, source)
+          emit("PUT", member, "#{ctrl}#update", nil, defaults, source)
         end
         if wanted.includes?("destroy")
-          emit("DELETE", member, "#{ctrl}#destroy", nil, defaults)
+          emit("DELETE", member, "#{ctrl}#destroy", nil, defaults, source)
         end
 
         saved = snapshot
@@ -206,11 +216,13 @@ module CRails
       # name ("sessions"), overridable with `controller:`. A block nests
       # routes under the plain path (no :id segment — /session/transfers).
       # `resource :session` without a block (see the block form below).
-      def resource(name : String | Symbol, **opts) : Nil
-        resource(name, **opts) { }
+      def resource(name : String | Symbol, *, file : String = __FILE__, line : Int32 = __LINE__,
+                   **opts) : Nil
+        resource(name, **opts.merge(file: file, line: line)) { }
       end
 
-      def resource(name : String | Symbol, **opts, &) : Nil
+      def resource(name : String | Symbol, *, file : String = __FILE__, line : Int32 = __LINE__,
+                   **opts, &) : Nil
         name = name.to_s
         res_path = opts["path"]?.try(&.to_s) || name
         controller = opts["controller"]?.try(&.to_s) || name.pluralize
@@ -220,25 +232,26 @@ module CRails
         base = @path_prefix + [res_path]
         ctrl = prefix_module(controller)
 
+        source = "#{file}:#{line}"
         wanted = wanted_actions(opts, SINGULAR_ACTIONS)
         if wanted.includes?("new")
-          emit("GET", base + ["new"], "#{ctrl}#new", "new_" + (@name_prefix + [as_name]).join("_"), defaults)
+          emit("GET", base + ["new"], "#{ctrl}#new", "new_" + (@name_prefix + [as_name]).join("_"), defaults, source)
         end
         if wanted.includes?("create")
-          emit("POST", base, "#{ctrl}#create", nil, defaults)
+          emit("POST", base, "#{ctrl}#create", nil, defaults, source)
         end
         if wanted.includes?("edit")
-          emit("GET", base + ["edit"], "#{ctrl}#edit", "edit_" + (@name_prefix + [as_name]).join("_"), defaults)
+          emit("GET", base + ["edit"], "#{ctrl}#edit", "edit_" + (@name_prefix + [as_name]).join("_"), defaults, source)
         end
         if wanted.includes?("update")
-          emit("PATCH", base, "#{ctrl}#update", nil, defaults)
-          emit("PUT", base, "#{ctrl}#update", nil, defaults)
+          emit("PATCH", base, "#{ctrl}#update", nil, defaults, source)
+          emit("PUT", base, "#{ctrl}#update", nil, defaults, source)
         end
         if wanted.includes?("show")
-          emit("GET", base, "#{ctrl}#show", compose_name(as_name), defaults)
+          emit("GET", base, "#{ctrl}#show", compose_name(as_name), defaults, source)
         end
         if wanted.includes?("destroy")
-          emit("DELETE", base, "#{ctrl}#destroy", nil, defaults)
+          emit("DELETE", base, "#{ctrl}#destroy", nil, defaults, source)
         end
 
         saved = snapshot
@@ -275,12 +288,12 @@ module CRails
       # member scope inside a `resources` block; `defaults:` adds default
       # params; a controller with a leading "/" opts out of `scope module:`.
       {% for verb in %w(get post put patch delete) %}
-        def {{verb.id}}(path : String, **opts) : Nil
-          add({{ verb.upcase }}, path, opts)
+        def {{verb.id}}(path : String, *, file : String = __FILE__, line : Int32 = __LINE__, **opts) : Nil
+          add({{ verb.upcase }}, path, opts, file, line)
         end
       {% end %}
 
-      private def add(verb : String, path : String, opts) : Nil
+      private def add(verb : String, path : String, opts, file : String, line : Int32) : Nil
         to = opts["to"]?.try(&.to_s)
         if to.nil? && (ctrl = @default_controllers.last?)
           # `delete "clear"` inside a resources block — the resource's
@@ -298,12 +311,13 @@ module CRails
         end
         segments = prefix + path.split("/").reject(&.empty?)
         controller, action = to.split("#", 2)
-        emit(verb, segments, "#{prefix_module(controller)}##{action}", compose_name(name), defaults)
+        emit(verb, segments, "#{prefix_module(controller)}##{action}", compose_name(name), defaults,
+          "#{file}:#{line}")
       end
 
       private def emit(verb : String, segments : Array(String), to : String,
-                       name : String?, defaults : Hash(String, String)) : Nil
-        @set.routes << Route.new(verb, "/" + segments.join("/"), to, name, defaults)
+                       name : String?, defaults : Hash(String, String), source : String? = nil) : Nil
+        @set.routes << Route.new(verb, "/" + segments.join("/"), to, name, defaults, source)
       end
 
       private def drop_member_segment : Nil
