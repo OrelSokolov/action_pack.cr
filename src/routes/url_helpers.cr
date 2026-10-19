@@ -67,18 +67,27 @@ module CRails::Routes::UrlHelpers
     name.ends_with?("_url") ? __crails_url_origin + path : path
   end
 
-  # Controllers expose `origin` (scheme://host of the request),
-  # Jbuilder partials carry `jb_origin`; everything else falls back to
-  # the configured default (jobs, tests). The check is compile-time:
-  # a dead `origin` branch would otherwise trip method_missing in
-  # contexts that don't define it.
+  # Controllers expose `origin` (scheme://host of the request), usually
+  # defined on the application's ApplicationController — i.e. an ANCESTOR
+  # of the concrete controller — and Jbuilder partials carry `jb_origin`;
+  # everything else falls back to the configured default (jobs, tests).
+  # The check is compile-time and walks the ancestor chain: a dead
+  # `origin` branch would otherwise trip method_missing in contexts
+  # that don't define it (`@type.methods` alone lists only the type's
+  # own methods, missing inherited ones).
   private def __crails_url_origin : String
-    {% if @type.methods.any? { |m| m.name.stringify == "origin" } %}
-      origin.to_s
-    {% elsif @type.methods.any? { |m| m.name.stringify == "jb_origin" } %}
-      jb_origin.to_s
-    {% else %}
-      UrlHelpers.default_url_origin
+    {% begin %}
+      {% origin_here = @type.methods.any? { |m| m.name.stringify == "origin" } ||
+                       @type.ancestors.any? { |t| t.methods.any? { |m| m.name.stringify == "origin" } } %}
+      {% jb_origin_here = @type.methods.any? { |m| m.name.stringify == "jb_origin" } ||
+                          @type.ancestors.any? { |t| t.methods.any? { |m| m.name.stringify == "jb_origin" } } %}
+      {% if origin_here %}
+        origin.to_s
+      {% elsif jb_origin_here %}
+        jb_origin.to_s
+      {% else %}
+        UrlHelpers.default_url_origin
+      {% end %}
     {% end %}
   end
 

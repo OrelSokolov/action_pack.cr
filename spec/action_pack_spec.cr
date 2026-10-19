@@ -100,6 +100,23 @@ class UrlHelperOriginHost
   end
 end
 
+# The app's ApplicationController defines `origin` — controllers only
+# INHERIT it. Regression spec: the compile-time lookup must walk the
+# ancestor chain, not just @type's own methods.
+abstract class UrlHelperOriginBase
+  def origin : String
+    "https://inherited.test"
+  end
+end
+
+class UrlHelperInheritedHost < UrlHelperOriginBase
+  include CRails::Routes::UrlHelpers
+
+  def h_room_url(*args, **opts)
+    room_url(*args, **opts)
+  end
+end
+
 describe "CRails::Routes" do
   it "matches root" do
     set = CRails::Routes::RouteSet.new
@@ -341,6 +358,8 @@ describe "CRails::Routes::UrlHelpers" do
     CRails::Routes::UrlHelpers.default_url_origin = "https://fallback.test"
 
     UrlHelperOriginHost.new.h_room_url(1).should eq("https://campfire.test/rooms/1")
+    # inherited `origin` (ApplicationController-style) must win too
+    UrlHelperInheritedHost.new.h_room_url(1).should eq("https://inherited.test/rooms/1")
     UrlHelperHost.new.h_room_url(1).should eq("https://fallback.test/rooms/1")
     CRails::Routes::UrlHelpers.default_url_origin = "http://localhost"
   end
