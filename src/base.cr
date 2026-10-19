@@ -14,6 +14,13 @@
 module ActionController
   VERSION = "0.1.0"
 
+  # Opt-out for the implicit-render dedent mode: templates compiled
+  # through the implicit action render strip leading whitespace of
+  # each line at compile time (flat output from indented sources);
+  # a controller whose templates were ported WITH indentation in
+  # their output annotates itself to keep the old bytes.
+  annotation NoTemplateDedent; end
+
   # Compile-time registry of controller classes (filled by `inherited`).
   REGISTRY = [] of TypeNode
   # Compile-time registry of before_action filters / rescue handlers
@@ -142,9 +149,9 @@ module ActionController
 
     # --- explicit rendering ---
 
-    def render(json : String, status = 200) : Nil
+    def render(json : String, status = nil) : Nil
       @performed = true
-      response.status_code = status_code(status)
+      response.status_code = status_code(status) if status
       response.headers["Content-Type"] = "application/json; charset=utf-8"
       __verify_same_origin_request
       response.print json
@@ -160,17 +167,20 @@ module ActionController
     # (Rails render "posts/show", formats: :json) конфликтует с
     # render(json : String) — позиционная строка занята телом JSON-ответа
     # (документированное отклонение).
-    def render(*, template : String, status = 200) : Nil
+    def render(*, template : String, status = nil) : Nil
       @performed = true
-      response.status_code = status_code(status)
+      response.status_code = status_code(status) if status
       response.headers["Content-Type"] = "application/json; charset=utf-8"
       __verify_same_origin_request
       response.print __jb_render_template(template)
     end
 
-    def render(plain : String? = nil, html : String? = nil, status = 200, content_type : String? = nil) : Nil
+    # Rails parity: render не сбрасывает уже назначенный response.status —
+    # статус ставится только явным :status (паттерн «response.status = X;
+    # render(plain:)» в контроллерах должен отдавать X, а не 200).
+    def render(plain : String? = nil, html : String? = nil, status = nil, content_type : String? = nil) : Nil
       @performed = true
-      response.status_code = status_code(status)
+      response.status_code = status_code(status) if status
       if body = plain
         response.headers["Content-Type"] = content_type || "text/plain; charset=utf-8"
         __verify_same_origin_request
@@ -306,8 +316,7 @@ module ActionController
 
     private def __merge_body_params(raw : Hash(String, Parameters::Value)) : Nil
       case request.headers["Content-Type"]?
-      when .nil? then nil
-      when /json/
+      when .nil? then nil      when /json/
         body = request.body.try(&.gets_to_end) || ""
         return if body.empty?
         # Re-feed the raw body: controllers that read it themselves
@@ -339,30 +348,59 @@ module ActionController
         # должны видеть байты, а не EOF.
         request.body = IO::Memory.new(body)
         URI::Params.parse(body).each do |k, v|
-          if k.includes?('[') && k.ends_with?(']') && (eq = k.index('['))
-            # nested form keys, Rails-style, arbitrary depth:
-            # post[title]=x -> {"post" => {"title" => "x"}}
-            # a[b][c]=1 -> {"a" => {"b" => {"c" => "1"}}}
-            keys = k[(eq + 1)...(k.size - 1)].split("][")
-            sub = raw[k[0...eq]]?
-            unless sub.is_a?(Parameters)
-              sub = Parameters.new
-              raw[k[0...eq]] = sub
-            end
-            node = sub.as(Parameters)
-            keys[0...-1].each do |ik|
-              nxt = node[ik]?
-              unless nxt.is_a?(Parameters)
-                nxt = Parameters.new
-                node[ik] = nxt
-              end
-              node = nxt.as(Parameters)
-            end
-            node[keys.last] = v
-          else
-            raw[k] = v
+          __assign_form_key(raw, k, v)
+        end
+      when /multipart\/form-data/
+        # Rails/Rack парсят multipart нативно. Текстовые поля попадают в
+        # params теми же nested-ключами, что и в urlencoded; файловые части
+        # в params не попадают (контроллеры, работающие с файлами, читают
+        # тело сами — body перематывается ниже). Тело может содержать
+        # бинарные байты файлов — только байтовые операции, без regex по
+        # контенту (regex на невалидной UTF-8 строке бросает ArgumentError).
+        body = request.body.try(&.gets_to_end) || ""
+        request.body = IO::Memory.new(body)
+        if (boundary = request.headers["Content-Type"][/boundary=([^";]+)/, 1]?)
+          delimiter = "--" + boundary.strip('"')
+          body.split(delimiter).each do |piece|
+            piece = piece.lchop("\r\n").rchop("\r\n")
+            next if piece.empty? || piece.starts_with?("--")
+            sep = piece.index("\r\n\r\n")
+            next unless sep
+            headers = piece[0...sep]
+            content = piece[(sep + 4)..]
+            name = headers[/\bname="([^"]*)"/, 1]?
+            next unless name
+            # части с filename — файлы: не текстовые params
+            next if headers.includes?("filename=")
+            __assign_form_key(raw, name, content)
           end
         end
+      end
+    end
+
+    # nested form key, Rails-style, arbitrary depth:
+    # post[title]=x -> {"post" => {"title" => "x"}}
+    # a[b][c]=1 -> {"a" => {"b" => {"c" => "1"}}}
+    private def __assign_form_key(raw : Hash(String, Parameters::Value), k : String, v : String) : Nil
+      if k.includes?('[') && k.ends_with?(']') && (eq = k.index('['))
+        keys = k[(eq + 1)...(k.size - 1)].split("][")
+        sub = raw[k[0...eq]]?
+        unless sub.is_a?(Parameters)
+          sub = Parameters.new
+          raw[k[0...eq]] = sub
+        end
+        node = sub.as(Parameters)
+        keys[0...-1].each do |ik|
+          nxt = node[ik]?
+          unless nxt.is_a?(Parameters)
+            nxt = Parameters.new
+            node[ik] = nxt
+          end
+          node = nxt.as(Parameters)
+        end
+        node[keys.last] = v
+      else
+        raw[k] = v
       end
     end
 
@@ -715,13 +753,14 @@ macro finished
         {% for m in t.methods %}
           {% is_action = m.args.empty? && !m.name.stringify.starts_with?("__") && m.name.stringify != m.name.stringify.capitalize && !callback_names.includes?(m.name.stringify) %}
           {% if is_action %}
+            {% tpl_dedent = t.annotations(::ActionController::NoTemplateDedent).size == 0 %}
             {% path = root + "/" + dir + "/" + m.name.stringify + ".html.erb" %}
             {% if (`(test -f #{path} && echo yes) || true`) != "" %}
-              compile_template "__av_tpl_{{ m.name.id }}", {{ path }}
+              compile_template "__av_tpl_{{ m.name.id }}", {{ path }}, dedent: {{ tpl_dedent }}
             {% end %}
             {% ts_path = root + "/" + dir + "/" + m.name.stringify + ".turbo_stream.erb" %}
             {% if (`(test -f #{ts_path} && echo yes) || true`) != "" %}
-              compile_template "__av_ts_tpl_{{ m.name.id }}", {{ ts_path }}
+              compile_template "__av_ts_tpl_{{ m.name.id }}", {{ ts_path }}, dedent: {{ tpl_dedent }}
             {% end %}
             {% jb_path = root + "/" + dir + "/" + m.name.stringify + ".json.jbuilder" %}
             {% if (`(test -f #{jb_path} && echo yes) || true`) != "" %}
