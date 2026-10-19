@@ -61,6 +61,40 @@ class GuardedController < ApplicationController
   end
 end
 
+# skip_before_action: unconditional skip disables the filter entirely;
+# a skip with only: keeps it for every other action (regression: the
+# generated code dropped the filter for ALL actions, ignoring the
+# skip's own only/except/if/unless set).
+class SkippedController < ApplicationController
+  before_action :authenticate
+  skip_before_action :authenticate
+
+  def guarded
+    render plain: "guarded"
+  end
+
+  private def authenticate
+    redirect_to "/login"
+  end
+end
+
+class PartiallySkippedController < ApplicationController
+  before_action :authenticate
+  skip_before_action :authenticate, only: [:open]
+
+  def open
+    render plain: "open"
+  end
+
+  def guarded
+    render plain: "guarded"
+  end
+
+  private def authenticate
+    redirect_to "/login"
+  end
+end
+
 class RescuedController < ApplicationController
   class CustomError < Exception; end
 
@@ -243,6 +277,22 @@ describe "before_action" do
   it "does not run the filter for other actions" do
     ctx = dispatch(build_context("GET", "/"), GuardedController, "public")
     ctx.response.status_code.should eq(200)
+  end
+end
+
+describe "skip_before_action" do
+  it "unconditional skip disables the filter entirely" do
+    ctx = dispatch(build_context("GET", "/"), SkippedController, "guarded")
+    ctx.response.status_code.should eq(200)
+  end
+
+  it "only: keeps the filter for other actions" do
+    ctx = dispatch(build_context("GET", "/"), PartiallySkippedController, "open")
+    ctx.response.status_code.should eq(200)
+
+    ctx = dispatch(build_context("GET", "/"), PartiallySkippedController, "guarded")
+    ctx.response.status_code.should eq(302)
+    ctx.response.headers["Location"].should eq("/login")
   end
 end
 

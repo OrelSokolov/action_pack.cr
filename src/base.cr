@@ -570,32 +570,32 @@ macro finished
         end
 
         # Registered before_action filters for this controller (its own
-        # and inherited ones, minus skip_before_action'd names).
+        # and inherited ones). skip_before_action narrows the original
+        # filter to the complement of the skip's only/except/if/unless
+        # set (an unconditional skip disables it entirely) — Rails
+        # callback-skip semantics; the old code dropped the filter for
+        # ALL actions, ignoring the skip's conditions.
         # Symbol#stringify here carries a leading ":" — normalized off.
         def __run_before_filters(action : String) : Nil
-          {% applicable = [] of NamedTuple %}
           {% for f in ActionController::FILTERS %}
             {% if f[0] == t || t.ancestors.includes?(f[0]) %}
               {% fname = f[1].stringify.gsub(/^:/, "") %}
               {% unless fname.starts_with?("__skip_") %}
-                {% skipped = false %}
+                {% skips = [] of Nil %}
                 {% for s in ActionController::FILTERS %}
                   {% if s[0] == t || t.ancestors.includes?(s[0]) %}
                     {% sname = s[1].stringify.gsub(/^:/, "") %}
                     {% if sname.starts_with?("__skip_") && sname[7..] == fname %}
-                      {% skipped = true %}
+                      {% skips << s %}
                     {% end %}
                   {% end %}
                 {% end %}
-                {% applicable << {name: f[1], opts: f[2]} unless skipped %}
+                if __callback_condition({{ f[2][:only] }}, {{ f[2][:except] }}, {{ f[2][:if] }}, {{ f[2][:unless] }}){% for s in skips %} && !__callback_condition({{ s[2][:only] }}, {{ s[2][:except] }}, {{ s[2][:if] }}, {{ s[2][:unless] }}){% end %}
+                  {{ f[1].id }}
+                  return if @performed
+                end
               {% end %}
             {% end %}
-          {% end %}
-          {% for f in applicable %}
-            if __callback_condition({{ f[:opts][:only] }}, {{ f[:opts][:except] }}, {{ f[:opts][:if] }}, {{ f[:opts][:unless] }})
-              {{ f[:name].id }}
-              return if @performed
-            end
           {% end %}
           nil
         end
