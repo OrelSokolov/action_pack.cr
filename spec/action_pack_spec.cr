@@ -43,6 +43,63 @@ private def run_action(context : HTTP::Server::Context, params : Hash(String, St
   context.response.close
 end
 
+# Host for the generated `*_path`/`*_url` helpers: `macro method_missing`
+# only fires for calls lexically inside the class body, so each helper
+# exercised by the specs gets a thin wrapper.
+class UrlHelperHost
+  include CRails::Routes::UrlHelpers
+
+  class ParamModel
+    def to_param : String
+      "7"
+    end
+  end
+
+  def h_root_path
+    root_path
+  end
+
+  def h_room_path(*args, **opts)
+    room_path(*args, **opts)
+  end
+
+  def h_room_message_path(*args, **opts)
+    room_message_path(*args, **opts)
+  end
+
+  def h_room_at_message_path(*args, **opts)
+    room_at_message_path(*args, **opts)
+  end
+
+  def h_oops_path
+    oops_path
+  end
+
+  def h_up_path
+    up_path
+  end
+
+  def h_room_message_path_one_arg
+    room_message_path(1)
+  end
+
+  def h_room_url(*args, **opts)
+    room_url(*args, **opts)
+  end
+end
+
+class UrlHelperOriginHost
+  include CRails::Routes::UrlHelpers
+
+  def origin : String
+    "https://campfire.test"
+  end
+
+  def h_room_url(*args, **opts)
+    room_url(*args, **opts)
+  end
+end
+
 describe "CRails::Routes" do
   it "matches root" do
     set = CRails::Routes::RouteSet.new
@@ -231,6 +288,68 @@ describe "CRails::Routes" do
     end
     set.match("GET", "/rooms/closeds/new").not_nil!.params["kind"].should eq("closeds")
     set.match("GET", "/rooms/new").not_nil!.params["kind"].should eq("opens")
+  end
+end
+
+describe "CRails::Routes::UrlHelpers" do
+  it "generates *_path helpers with Rails semantics" do
+    set = CRails::Routes::RouteSet.new
+    set.draw do
+      root "welcome#show"
+      get "/up", to: "up#show"
+      resources :rooms, only: [:show] do
+        resources :messages, only: [:show], param: :message_id
+        get "@:message_id", to: "rooms#show", as: :at_message
+      end
+    end
+    CRails::Routes::UrlHelpers.route_set = set
+    host = UrlHelperHost.new
+
+    host.h_root_path.should eq("/")
+    host.h_room_path(1).should eq("/rooms/1")
+    host.h_room_path(1_i64).should eq("/rooms/1")
+    host.h_room_path("hello world").should eq("/rooms/hello+world")
+    host.h_room_message_path(1, 2).should eq("/rooms/1/messages/2")
+    host.h_room_at_message_path(1, 2).should eq("/rooms/1/@2")
+
+    # named opts → query, anchor → fragment
+    host.h_room_path(1, v: 3).should eq("/rooms/1?v=3")
+    host.h_room_path(1, v: 3, anchor: "m2").should eq("/rooms/1?v=3#m2")
+    # extra positional args go to the query string (key = value)
+    host.h_room_path(1, 2).should eq("/rooms/1?2=2")
+    # to_param objects
+    host.h_room_path(UrlHelperHost::ParamModel.new).should eq("/rooms/7")
+
+    # unknown name → ArgumentError (UrlGenerationError analogue)
+    expect_raises ArgumentError, "No route named oops" do
+      host.h_oops_path
+    end
+    # unnamed route — no helper
+    expect_raises ArgumentError, "No route named up" do
+      host.h_up_path
+    end
+    # not enough args
+    expect_raises ArgumentError do
+      host.h_room_message_path_one_arg
+    end
+  end
+
+  it "generates *_url from the context origin, falling back to the default" do
+    set = CRails::Routes::RouteSet.new
+    set.draw { resources :rooms, only: [:show] }
+    CRails::Routes::UrlHelpers.route_set = set
+    CRails::Routes::UrlHelpers.default_url_origin = "https://fallback.test"
+
+    UrlHelperOriginHost.new.h_room_url(1).should eq("https://campfire.test/rooms/1")
+    UrlHelperHost.new.h_room_url(1).should eq("https://fallback.test/rooms/1")
+    CRails::Routes::UrlHelpers.default_url_origin = "http://localhost"
+  end
+
+  it "builds the root path without extra args" do
+    set = CRails::Routes::RouteSet.new
+    set.draw { root "welcome#show" }
+    CRails::Routes::UrlHelpers.route_set = set
+    UrlHelperHost.new.h_root_path.should eq("/")
   end
 end
 

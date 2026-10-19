@@ -38,10 +38,57 @@ module CRails
     class RouteSet
       attr_reader routes = [] of Route
 
+      @named_routes : Hash(String, Route)?
+
       # `with ... yield` makes the block a DSL: bare `root`/`get`/...
       # calls inside `draw do ... end` are routed to the Drawer.
       def draw(&) : Nil
         with drawer yield
+      end
+
+      # Index name → route for URL generation (the reverse direction of
+      # `match`). Built lazily on the first lookup; the last route drawn
+      # with a given name wins, as in Rails.
+      def named_routes : Hash(String, Route)
+        @named_routes ||= routes.each_with_object({} of String => Route) do |route, index|
+          if (name = route.name)
+            index[name] = route
+          end
+        end
+      end
+
+      # Builds a URL path for a named route — the runtime behind the
+      # `*_path`/`*_url` helpers (Routes::UrlHelpers). Positional args
+      # fill the dynamic segments left-to-right, url-encoded; literal
+      # prefixes ("@:message_id") keep the prefix and encode only the
+      # value. Leftover args become query params with the value as both
+      # key and value, as Rails does for unnamed extras. Raises
+      # ArgumentError (the UrlGenerationError analogue) on an unknown
+      # name or missing segment values.
+      def path_for(name : String, args : Array(String)) : String
+        route = named_routes[name]?
+        raise ArgumentError.new("No route named #{name}") unless route
+        parts = [] of String
+        rest = args.dup
+        route.segments.each do |segment|
+          colon = segment.index(':')
+          if colon && (colon == 0 || segment.size > colon)
+            if rest.empty?
+              raise ArgumentError.new(
+                "No route named #{name} matches the given arguments: missing value for segment #{segment}")
+            end
+            prefix = colon == 0 ? "" : segment[0...colon]
+            parts << prefix + URI.encode_www_form(rest.shift)
+          else
+            parts << segment
+          end
+        end
+        path = "/" + parts.join("/")
+        unless rest.empty?
+          query = rest.map { |value| "#{URI.encode_www_form(value)}=#{URI.encode_www_form(value)}" }.join("&")
+          path += "?" + query
+        end
+        path
       end
 
       private def drawer : Drawer

@@ -37,6 +37,7 @@ module ActionController
   class Base
     include ActionView::Helpers
     include ConditionalGet
+    include CRails::Routes::UrlHelpers
 
     attr_reader context : HTTP::Server::Context
     attr_reader params : Parameters
