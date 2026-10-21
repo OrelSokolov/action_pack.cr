@@ -96,4 +96,32 @@ module CRails::Routes::UrlHelpers
   def self.__to_param(arg) : String
     arg.responds_to?(:to_param) ? arg.to_param : arg.to_s
   end
+
+  # Polymorphic model→path (the Rails polymorphic_path analogue for
+  # ActionView::FormModel arrays): computes the named route from the
+  # models' names + persisted? state and fills the dynamic segments
+  # with the models' `to_param`s —
+  #   [room, message(persisted)] → room_message_path(room, message)
+  #   [room, Message.new]        → room_messages_path(room)
+  #   [message(persisted)]       → message_path(message)
+  #   [Message.new]              → messages_path
+  # action_view_cr's form_with calls this through
+  # FormHelper.polymorphic_path, wired here by railties_cr at boot —
+  # action_view_cr cannot reach the route set itself (the dependency
+  # runs action_pack_cr → action_view_cr, not the other way).
+  def self.polymorphic_path(models : Array(ActionView::FormModel)) : String
+    set = route_set ||
+      raise ArgumentError.new("CRails::Routes::UrlHelpers.route_set is not set (assign CRails.application.routes at boot)")
+    raise ArgumentError.new("polymorphic_path needs at least one model") if models.empty?
+    last = models.last
+    names = models.map(&.form_model_name)
+    if last.form_persisted?
+      route_name = names.join("_")
+      values = models.map { |m| UrlHelpers.__to_param(m) }
+    else
+      route_name = (names[0...-1] + [names.last.pluralize]).join("_")
+      values = models[0...-1].map { |m| UrlHelpers.__to_param(m) }
+    end
+    set.path_for(route_name, values)
+  end
 end

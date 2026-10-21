@@ -370,6 +370,69 @@ describe "CRails::Routes::UrlHelpers" do
     CRails::Routes::UrlHelpers.route_set = set
     UrlHelperHost.new.h_root_path.should eq("/")
   end
+
+  it "polymorphic_path resolves model arrays to named routes" do
+    set = CRails::Routes::RouteSet.new
+    set.draw do
+      resources :messages, only: [:show, :index]
+      resources :rooms, only: [:show] do
+        resources :messages, except: [:new], param: :message_id
+      end
+    end
+    CRails::Routes::UrlHelpers.route_set = set
+
+    room = PolyModel.new("room", 1)
+    message = PolyModel.new("message", 5)
+    new_message = PolyModel.new("message", nil)
+    new_room = PolyModel.new("room", nil)
+
+    # persisted → member route with every model's to_param
+    CRails::Routes::UrlHelpers.polymorphic_path([message] of ActionView::FormModel).should eq("/messages/5")
+    CRails::Routes::UrlHelpers.polymorphic_path([room, message] of ActionView::FormModel).should eq("/rooms/1/messages/5")
+    # new record → collection route, parents' to_params only
+    CRails::Routes::UrlHelpers.polymorphic_path([new_message] of ActionView::FormModel).should eq("/messages")
+    CRails::Routes::UrlHelpers.polymorphic_path([room, new_message] of ActionView::FormModel).should eq("/rooms/1/messages")
+    # to_param customized (Room#to_param style)
+    custom = PolyModel.new("message", 5, "slug")
+    CRails::Routes::UrlHelpers.polymorphic_path([room, custom] of ActionView::FormModel).should eq("/rooms/1/messages/slug")
+
+    # missing route for the name combination → ArgumentError
+    expect_raises ArgumentError, "No route named room_room" do
+      CRails::Routes::UrlHelpers.polymorphic_path([room, PolyModel.new("room", 2)] of ActionView::FormModel)
+    end
+    # empty array
+    expect_raises ArgumentError, "polymorphic_path needs at least one model" do
+      CRails::Routes::UrlHelpers.polymorphic_path([] of ActionView::FormModel)
+    end
+  end
+end
+
+# Minimal FormModel for polymorphic_path specs: name + id (to_param).
+class PolyModel
+  include ActionView::FormModel
+
+  def initialize(@model_name : String, @id : Int32?, @param : String? = nil)
+  end
+
+  def form_scope : String
+    @model_name
+  end
+
+  def form_model_name : String
+    @model_name
+  end
+
+  def form_attributes : Hash(String, ActionView::FormValue)
+    {"id" => @id}
+  end
+
+  def form_persisted? : Bool
+    !@id.nil?
+  end
+
+  def to_param : String
+    @param || @id.to_s
+  end
 end
 
 describe "ActionController::Dispatch codegen" do
