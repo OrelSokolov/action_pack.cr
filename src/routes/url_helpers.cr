@@ -114,7 +114,11 @@ module CRails::Routes::UrlHelpers
       raise ArgumentError.new("CRails::Routes::UrlHelpers.route_set is not set (assign CRails.application.routes at boot)")
     raise ArgumentError.new("polymorphic_path needs at least one model") if models.empty?
     last = models.last
-    names = models.map(&.form_model_name)
+    # explicit loop, not `map(&.form_model_name)`: the block shorthand
+    # fails return-type inference for the abstract FormModel method
+    # when instantiated through a proc (railties boot wiring)
+    names = [] of String
+    models.each { |m| names << m.form_model_name }
     if last.form_persisted?
       route_name = names.join("_")
       values = models.map { |m| UrlHelpers.__to_param(m) }
