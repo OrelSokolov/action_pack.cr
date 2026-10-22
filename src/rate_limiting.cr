@@ -103,14 +103,41 @@ module ActionController
     include RateLimiting
 
     # Bucket identity for rate_limit defaults — Rails request.remote_ip.
+    # Client-supplied X-Forwarded-For is honored only when the peer is
+    # a trusted proxy (loopback/private), mirroring ActionDispatch::
+    # RemoteIp — otherwise the bucket key is client-controlled and the
+    # limit is bypassed by rotating the header.
     protected def __remote_ip : String
-      if (fwd = request.headers["X-Forwarded-For"]?) && !fwd.empty?
-        return fwd.split(',').first.strip
+      socket_ip = case addr = request.remote_address
+                  when Socket::IPAddress then addr.address.to_s
+                  else                        nil
+                  end
+      if (fwd = request.headers["X-Forwarded-For"]?) && !fwd.empty? &&
+         (client = fwd.split(',').first.strip) && !client.empty? &&
+         socket_ip.try { |ip| __trusted_proxy?(ip) }
+        return client
       end
-      case addr = request.remote_address
-      when Socket::IPAddress then addr.address.to_s
-      else                        "unknown"
+      socket_ip || "unknown"
+    end
+
+    private def __trusted_proxy?(ip : String) : Bool
+      unless ip.includes?(':')
+        parts = ip.split('.')
+        return false unless parts.size == 4
+        octets = parts.map(&.to_i?)
+        return false if octets.any?(&.nil?)
+        a = octets[0].not_nil!
+        b = octets[1].not_nil!
+        return a == 127 || a == 10 || a == 0 ||
+               (a == 169 && b == 254) ||
+               (a == 172 && b >= 16 && b <= 31) ||
+               (a == 192 && b == 168) ||
+               (a == 100 && b >= 64 && b <= 127)
       end
+      # IPv6: loopback, unique-local, link-local — «непубличные».
+      ip = ip.downcase
+      ip == "::1" || ip.starts_with?("fc") || ip.starts_with?("fd") ||
+        ip.starts_with?("fe80:")
     end
   end
 end

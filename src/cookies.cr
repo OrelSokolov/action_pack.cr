@@ -158,6 +158,10 @@ module ActionController
     protected def __set(name : String, options : CookieOptions) : Nil
       @jar[name] = options.value
       return if options.secure && !request_https?
+      # Rails (ActionDispatch::Cookies): запрос по TLS автоматически
+      # получает Secure на cookie — 20-летний session-токен не должен
+      # уходить по http после логина через https.
+      options.secure = true if request_https?
       @context.response.headers.add("Set-Cookie", __render(name, options))
     end
 
