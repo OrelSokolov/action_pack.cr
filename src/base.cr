@@ -30,6 +30,23 @@ module ActionController
   # Compile-time registry of around_action filters (symbol or generated
   # block method), filled by the `around_action` macro.
   AROUND_FILTERS = [] of {TypeNode, Symbol, NamedTuple}
+  # Compile-time registry of view-helper modules (app/helpers/**): a helper
+  # module opts in via `include ActionController::Helper`. Controllers get
+  # their conventional helper auto-included at end-of-program codegen
+  # (RoomsController → RoomsHelper/RoomsHelpers, ApplicationController →
+  # ApplicationHelper); non-conventional pairs wire explicitly via
+  # `helper :sym` (Rails API).
+  HELPERS = [] of TypeNode
+  # helper_method declarations (validated at end of program, when the
+  # controller bodies — including methods defined below the call — exist).
+  HELPER_METHODS = [] of {TypeNode, Symbol}
+
+  # Marker for app/helpers modules participating in controller wiring.
+  module Helper
+    macro included
+      {% ActionController::HELPERS << @type %}
+    end
+  end
 
   class RoutingError < Exception
   end
@@ -146,6 +163,45 @@ module ActionController
       {% handler = opts[:with] || opts["with"] %}
       {% raise "rescue_from needs a `with:` handler" unless handler %}
       {% ActionController::RESCUERS << { @type, exception, handler } %}
+    end
+
+    # helper :rooms (Rails API): include the registered RoomsHelper/
+    # RoomsHelpers module (a helper module registers via
+    # `include ActionController::Helper`). Nested references match module
+    # namespaces: helper "users/sidebar" → Users::SidebarHelper(s).
+    # `helper` without arguments (or `helper :all`) includes every
+    # registered helper — Rails' default — which is only viable while no
+    # method-name conflicts exist across helper modules.
+    macro helper(*names)
+      {% if names.empty? %}
+        {% for h in ActionController::HELPERS %}
+          include {{ h }}
+        {% end %}
+      {% else %}
+        {% for n in names %}
+          {% found = nil %}
+          {% base = n.id.stringify.split("/").map { |p| p.split("_").map(&.capitalize).join("") }.join("::") %}
+          {% for h in ActionController::HELPERS %}
+            {% if h.name == base + "Helper" || h.name == base + "Helpers" %}
+              {% found = h %}
+            {% end %}
+          {% end %}
+          {% unless found %}
+            {% raise "helper #{n}: no registered module #{base}Helper(s) — include ActionController::Helper in it?" %}
+          {% end %}
+          include {{ found }}
+        {% end %}
+      {% end %}
+    end
+
+    # helper_method (Rails API): expose controller methods to views. The
+    # render context here IS the controller (templates compile into
+    # controller methods), so the methods are already visible to templates;
+    # names are validated at end of program (see HELPER_METHODS).
+    macro helper_method(*names)
+      {% for n in names %}
+        {% ActionController::HELPER_METHODS << { @type, n } %}
+      {% end %}
     end
 
     # --- explicit rendering ---
@@ -490,6 +546,32 @@ end
 
 # End-of-program codegen: runs after every controller class is defined.
 macro finished
+  # helper_method validation: by now every controller body (including
+  # methods declared below the helper_method call) is defined.
+  {% for hm in ActionController::HELPER_METHODS %}
+    {% unless hm[0].has_method?(hm[1]) %}
+      {% raise "helper_method #{hm[1]}: no method #{hm[1]} on #{hm[0]}" %}
+    {% end %}
+  {% end %}
+
+  # Convention helper wiring (Rails: FooController → FooHelper): every
+  # controller — abstract ones included (ApplicationController →
+  # ApplicationHelper) — includes its conventional registered helper
+  # module (FooHelper or the crails plural FooHelpers variant). Reopened
+  # at the end of the class body, matching the hand-written `include`
+  # placement it replaces (leaf module wins over inherited concerns).
+  {% for t in ActionController::REGISTRY %}
+    {% hparts = t.name.split("::") %}
+    {% hbase = hparts.size > 1 ? hparts[0...-1].join("::") + "::" + hparts.last.gsub(/Controller$/, "") : hparts.last.gsub(/Controller$/, "") %}
+    {% for h in ActionController::HELPERS %}
+      {% if h.name == hbase + "Helper" || h.name == hbase + "Helpers" %}
+        class ::{{ t.stringify.id }}
+          include {{ h }}
+        end
+      {% end %}
+    {% end %}
+  {% end %}
+
   {% for t in ActionController::REGISTRY %}
     {% unless t.abstract? %}
       {% parts = t.name.split("::") %}
