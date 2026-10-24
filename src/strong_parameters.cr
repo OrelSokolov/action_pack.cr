@@ -29,9 +29,32 @@ module ActionController
     end
   end
 
+  # ActionDispatch::Http::UploadedFile — a multipart file part exposed
+  # through params (filename/content_type/body); permitted like a scalar.
+  struct UploadedFile
+    getter filename : String
+    getter content_type : String
+    getter body : String
+
+    def initialize(@filename : String, @content_type : String, @body : String)
+    end
+
+    def size : Int32
+      @body.bytesize
+    end
+
+    def read : String
+      @body
+    end
+
+    def to_s(io : IO) : Nil
+      io << "#<ActionController::UploadedFile #{filename.inspect} (#{content_type})>"
+    end
+  end
+
   class Parameters
     alias Scalar = String | Int32 | Int64 | Float64 | Bool | Nil
-    alias Value = Scalar | Array(Scalar) | Parameters
+    alias Value = Scalar | Array(Scalar) | Parameters | UploadedFile
 
     attr_reader parameters : Hash(String, Value)
     property? permitted : Bool

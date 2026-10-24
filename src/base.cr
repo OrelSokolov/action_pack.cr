@@ -354,10 +354,10 @@ module ActionController
       when /multipart\/form-data/
         # Rails/Rack парсят multipart нативно. Текстовые поля попадают в
         # params теми же nested-ключами, что и в urlencoded; файловые части
-        # в params не попадают (контроллеры, работающие с файлами, читают
-        # тело сами — body перематывается ниже). Тело может содержать
-        # бинарные байты файлов — только байтовые операции, без regex по
-        # контенту (regex на невалидной UTF-8 строке бросает ArgumentError).
+        # (Content-Disposition с filename) — как ActionController::UploadedFile
+        # (ActionDispatch::Http::UploadedFile). Тело может содержать бинарные
+        # байты файлов — только байтовые операции, без regex по контенту
+        # (regex на невалидной UTF-8 строке бросает ArgumentError).
         body = request.body.try(&.gets_to_end) || ""
         request.body = IO::Memory.new(body)
         if (boundary = request.headers["Content-Type"][/boundary=([^";]+)/, 1]?)
@@ -371,9 +371,14 @@ module ActionController
             content = piece[(sep + 4)..]
             name = headers[/\bname="([^"]*)"/, 1]?
             next unless name
-            # части с filename — файлы: не текстовые params
-            next if headers.includes?("filename=")
-            __assign_form_key(raw, name, content)
+            if (filename = headers[/\bfilename="([^"]*)"/, 1]?) && !filename.empty?
+              # File parts land in params as UploadedFile (Rails semantics);
+              # binary body — only byte-safe String ops (see comment above).
+              ctype = headers[/content-type:\s*([^\r\n]+)/i, 1]?.try(&.strip) || "application/octet-stream"
+              __assign_form_key(raw, name, UploadedFile.new(filename, ctype, content))
+            else
+              __assign_form_key(raw, name, content)
+            end
           end
         end
       end
@@ -382,7 +387,9 @@ module ActionController
     # nested form key, Rails-style, arbitrary depth:
     # post[title]=x -> {"post" => {"title" => "x"}}
     # a[b][c]=1 -> {"a" => {"b" => {"c" => "1"}}}
-    private def __assign_form_key(raw : Hash(String, Parameters::Value), k : String, v : String) : Nil
+    # Values may be strings (urlencoded/multipart text parts) or
+    # UploadedFile (multipart file parts).
+    private def __assign_form_key(raw : Hash(String, Parameters::Value), k : String, v : Parameters::Value) : Nil
       if k.includes?('[') && k.ends_with?(']') && (eq = k.index('['))
         keys = k[(eq + 1)...(k.size - 1)].split("][")
         sub = raw[k[0...eq]]?
