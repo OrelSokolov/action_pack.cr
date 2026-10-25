@@ -42,7 +42,10 @@ module CRails::Routes::UrlHelpers
 
   # Shared runtime of the generated methods. Defined on the including
   # instance so `*_url` can ask the request context for its origin.
-  private def __crails_url_helper(name : String, args, opts) : String
+  # Public so non-controller contexts (Jbuilder partials — their class
+  # cannot include this module: the method_missing macro here would shadow
+  # Jbuilder's DSL) can delegate through a small helper context.
+  def __crails_url_helper(name : String, args, opts) : String
     set = UrlHelpers.route_set ||
       raise ArgumentError.new("CRails::Routes::UrlHelpers.route_set is not set (assign CRails.application.routes at boot)")
     # `*_url`/`*_path` helpers share one route name (the suffix is cut)
