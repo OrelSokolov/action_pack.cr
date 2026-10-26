@@ -48,6 +48,16 @@ class FwController < ApplicationController
       render plain: "stale-body"
     end
   end
+
+  def expires_public
+    expires_in 1.year, public: true
+    render plain: "qr"
+  end
+
+  def expires_plain
+    expires_in Time::Span.new(seconds: 60)
+    render plain: "qr"
+  end
 end
 
 private def dispatch(action : String, if_none_match : String? = nil,
@@ -149,5 +159,12 @@ describe "ActionController::ConditionalGet (rails 8.1.4 oracle)" do
   it "If-None-Match: * matches any etag (gem behavior)" do
     ctx, raw = dispatch("etag", if_none_match: "*")
     ctx.response.status_code.should eq(304)
+  end
+
+  it "expires_in builds Rails Cache-Control directives" do
+    ctx, raw = dispatch("expires_public")
+    ctx.response.headers["Cache-Control"].should eq("public, max-age=31536000")
+    ctx, raw = dispatch("expires_plain")
+    ctx.response.headers["Cache-Control"].should eq("max-age=60")
   end
 end

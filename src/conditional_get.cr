@@ -71,6 +71,24 @@ module ActionController
       !fresh_when(**opts)
     end
 
+    # expires_in 1.year, public: true — Rails Cache-Control builder
+    # (actionpack's ActionController::Instrumentation#expires_in over
+    # ActionDispatch::Response::CacheControl): directives in order
+    # public/private → max-age → must-revalidate; a zero/negative span
+    # drops max-age. `1.year` (ActiveSupport::Duration) and raw
+    # seconds/Time::Span all convert via #to_i. `private:` rides in
+    # **opts (Crystal keyword).
+    def expires_in(seconds, *, public : Bool = false, must_revalidate : Bool = false,
+                   **opts) : Nil
+      total = seconds.is_a?(Time::Span) ? seconds.total_seconds.to_i : seconds.to_i
+      directives = [] of String
+      directives << "public" if public
+      directives << "private" if opts["private"]? == true
+      directives << "max-age=#{total}" if total > 0
+      directives << "must-revalidate" if must_revalidate
+      response.headers["Cache-Control"] = directives.join(", ") unless directives.empty?
+    end
+
     # request.fresh? — strict_freshness режим, дефолт Rails 8.1
     # (load_defaults 8.1; подтверждён оракулом fw_both_inm_wins_304):
     # If-None-Match присутствует → только сравнение ETag, If-Modified-Since
