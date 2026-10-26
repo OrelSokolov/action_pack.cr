@@ -50,23 +50,19 @@ module CRails::Routes::UrlHelpers
       raise ArgumentError.new("CRails::Routes::UrlHelpers.route_set is not set (assign CRails.application.routes at boot)")
     # `*_url`/`*_path` helpers share one route name (the suffix is cut)
     route_name = name.ends_with?("_url") ? name.rchop("_url") : name.rchop("_path")
+    if (direct = set.direct_routes[route_name]?)
+      options = {} of String => RouteArg
+      opts.each { |key, value| options[key.to_s] = value }
+      arg : DirectArg? = args.first?.try { |a| DirectArgBox.new(a) }
+      path = direct.call(arg, options)
+      # a direct block may return a full URL (route_for with an absolute
+      # base) — don't double-prefix it
+      return path if name.ends_with?("_url") && path.starts_with?("http")
+      return name.ends_with?("_url") ? __crails_url_origin + path : path
+    end
     values = [] of String
     args.each { |arg| values << UrlHelpers.__to_param(arg) }
-    anchor = nil
-    query = [] of Tuple(String, String)
-    opts.each do |key, value|
-      if key.to_s == "anchor"
-        anchor = UrlHelpers.__to_param(value)
-      else
-        query << {key.to_s, UrlHelpers.__to_param(value)}
-      end
-    end
-    path = set.path_for(route_name, values)
-    unless query.empty?
-      qs = query.map { |k, v| "#{URI.encode_www_form(k)}=#{URI.encode_www_form(v)}" }.join("&")
-      path += (path.includes?('?') ? "&" : "?") + qs
-    end
-    path += "#" + URI.encode_www_form(anchor) if anchor
+    path = UrlHelpers.__append_query(set.path_for(route_name, values), opts)
     name.ends_with?("_url") ? __crails_url_origin + path : path
   end
 
@@ -100,6 +96,39 @@ module CRails::Routes::UrlHelpers
     arg.responds_to?(:to_param) ? arg.to_param : arg.to_s
   end
 
+  # Appends the named opts as a query string (nil values are SKIPPED, as
+  # in Rails' url_for; `anchor:` becomes the fragment). Shared by the
+  # generated `*_path`/`*_url` helpers and `route_for`.
+  def self.__append_query(path : String, opts) : String
+    anchor = nil
+    query = [] of Tuple(String, String)
+    opts.each do |key, value|
+      next if value.nil?
+      if key.to_s == "anchor"
+        anchor = __to_param(value)
+      else
+        query << {key.to_s, __to_param(value)}
+      end
+    end
+    unless query.empty?
+      qs = query.map { |k, v| "#{URI.encode_www_form(k)}=#{URI.encode_www_form(v)}" }.join("&")
+      path += (path.includes?('?') ? "&" : "?") + qs
+    end
+    path += "#" + URI.encode_www_form(anchor) if anchor
+    path
+  end
+
+  # `route_for :name, *args, **opts` — the runtime behind the top-level
+  # `route_for` (what `direct` blocks call). Builds the named route's
+  # path from the positional args and appends the opts as the query.
+  def self.route_for(name : String | Symbol, args : Tuple, opts) : String
+    set = route_set ||
+      raise ArgumentError.new("CRails::Routes::UrlHelpers.route_set is not set (assign CRails.application.routes at boot)")
+    values = [] of String
+    args.each { |arg| values << __to_param(arg) }
+    __append_query(set.path_for(name.to_s, values), opts)
+  end
+
   # Polymorphic model→path (the Rails polymorphic_path analogue for
   # ActionView::FormModel arrays): computes the named route from the
   # models' names + persisted? state and fills the dynamic segments
@@ -131,4 +160,13 @@ module CRails::Routes::UrlHelpers
     end
     set.path_for(route_name, values)
   end
+end
+
+# Top-level `route_for` — the scope `direct` blocks in config/routes.cr
+# see. Captured blocks don't inherit the `with drawer yield` receiver, so
+# a bare `route_for` inside a block cannot resolve against the Drawer;
+# a top-level method (Crystal's kernel-method equivalent) is the only
+# scope both the routes file and the app see.
+def route_for(name : String | Symbol, *args, **opts) : String
+  CRails::Routes::UrlHelpers.route_for(name, args, opts)
 end

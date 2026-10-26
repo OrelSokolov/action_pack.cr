@@ -63,6 +63,22 @@ class UrlHelperHost
     room_path(*args, **opts)
   end
 
+  def h_fresh_account_logo_path(*args, **opts)
+    fresh_account_logo_path(*args, **opts)
+  end
+
+  def h_fresh_account_logo_url(*args, **opts)
+    fresh_account_logo_url(*args, **opts)
+  end
+
+  def h_fresh_user_avatar_path(*args, **opts)
+    fresh_user_avatar_path(*args, **opts)
+  end
+
+  def h_no_such_direct_path
+    no_such_direct_path
+  end
+
   def h_room_message_path(*args, **opts)
     room_message_path(*args, **opts)
   end
@@ -309,8 +325,7 @@ describe "CRails::Routes" do
 end
 
 describe "CRails::Routes::UrlHelpers" do
-  it "generates *_path helpers with Rails semantics" do
-    set = CRails::Routes::RouteSet.new
+  it "generates *_path helpers with Rails semantics" do    set = CRails::Routes::RouteSet.new
     set.draw do
       root "welcome#show"
       get "/up", to: "up#show"
@@ -404,6 +419,53 @@ describe "CRails::Routes::UrlHelpers" do
     expect_raises ArgumentError, "polymorphic_path needs at least one model" do
       CRails::Routes::UrlHelpers.polymorphic_path([] of ActionView::FormModel)
     end
+  end
+end
+
+describe "CRails::Routes direct helpers" do
+  it "dispatches direct helpers through route_for, skipping nil options" do
+    set = CRails::Routes::RouteSet.new
+    set.draw do
+      get "/account/logo", to: "accounts/logos#show", as: "account_logo"
+      get "/users/:token/avatar", to: "users/avatars#show", as: "user_avatar"
+      resources :searches, only: [:index, :create] do
+        delete :clear, on: :collection
+      end
+      direct :fresh_account_logo do |options|
+        route_for :account_logo, v: "20260101000000", size: options["size"]?
+      end
+      direct :fresh_user_avatar, DirectSpecUser do |user, options|
+        route_for :user_avatar, user.token, v: user.stamp
+      end
+    end
+    CRails::Routes::UrlHelpers.route_set = set
+    CRails::Routes::UrlHelpers.default_url_origin = "https://campfire.test"
+
+    # named route itself is untouched
+    set.match("DELETE", "/searches/clear").not_nil!.route.action.should eq("clear")
+
+    host = UrlHelperHost.new
+    host.h_fresh_account_logo_path.should eq("/account/logo?v=20260101000000")
+    host.h_fresh_account_logo_path(size: "small").should eq("/account/logo?v=20260101000000&size=small")
+    host.h_fresh_account_logo_url.should eq("https://campfire.test/account/logo?v=20260101000000")
+    host.h_fresh_user_avatar_path(DirectSpecUser.new).should eq("/users/tok1/avatar?v=20250101010101")
+
+    # unknown direct name still raises
+    expect_raises ArgumentError do
+      host.h_no_such_direct_path
+    end
+    CRails::Routes::UrlHelpers.default_url_origin = "http://localhost"
+  end
+end
+
+# Model stand-in for the direct spec: token + cache-buster stamp.
+class DirectSpecUser
+  def token : String
+    "tok1"
+  end
+
+  def stamp : String
+    "20250101010101"
   end
 end
 

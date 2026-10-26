@@ -1,5 +1,53 @@
 module CRails
   module Routes
+    # Option values `direct` blocks receive (String-keyed hash): literals
+    # only — the positional model argument travels in a DirectArgBox.
+    alias RouteArg = String | Symbol | Int32 | Int64 | Float64 | Bool | Nil
+
+    # Boxes a helper's first positional argument for abstract dispatch
+    # into a `direct` block: Crystal cannot declare Reference in a union,
+    # so the argument rides in a generic box and each block casts it back
+    # to its own type (DirectWithArgRoute(A)).
+    abstract class DirectArg
+    end
+
+    class DirectArgBox(A) < DirectArg
+      def initialize(@value : A)
+      end
+
+      def value : A
+        @value
+      end
+    end
+
+    # A registered `direct :name do |arg, options| ... end` block.
+    abstract class DirectRoute
+      abstract def call(arg : DirectArg?, options : Hash(String, RouteArg)) : String
+    end
+
+    # `direct :helper do |options| ... end` — options-only helper.
+    class DirectOptionsRoute < DirectRoute
+      def initialize(@block : Hash(String, RouteArg) -> String)
+      end
+
+      def call(arg : DirectArg?, options : Hash(String, RouteArg)) : String
+        @block.call(options)
+      end
+    end
+
+    # `direct :helper, User do |user, options| ... end` — helper taking a
+    # positional model argument.
+    class DirectWithArgRoute(A) < DirectRoute
+      def initialize(@block : A, Hash(String, RouteArg) -> String)
+      end
+
+      def call(arg : DirectArg?, options : Hash(String, RouteArg)) : String
+        box = arg.as?(DirectArgBox(A)) ||
+          raise ArgumentError.new("direct helper expected an argument of #{A}")
+        @block.call(box.value, options)
+      end
+    end
+
     struct Route
       attr_reader verb : String
       attr_reader segments : Array(String)
@@ -37,6 +85,11 @@ module CRails
 
     class RouteSet
       attr_reader routes = [] of Route
+
+      # `direct :name do |arg, options| ... end` helpers (the Rails
+      # `direct` DSL): the generated `name_path`/`name_url` methods
+      # dispatch here.
+      attr_reader direct_routes = {} of String => DirectRoute
 
       @named_routes : Hash(String, Route)?
 
@@ -150,6 +203,41 @@ module CRails
 
       def root(to : String, *, file : String = __FILE__, line : Int32 = __LINE__) : Nil
         get "/", to: to, as: "root", file: file, line: line
+      end
+
+      # `direct :fresh_account_logo do |options| ... end` — register a
+      # custom URL helper (Rails' `direct` DSL): the block runs whenever a
+      # `fresh_account_logo_path`/`_url` helper is called, receiving the
+      # helper's options (nil option values are skipped by `route_for`,
+      # as in Rails). Blocks taking a model pass its type up front
+      # (Crystal block parameters cannot carry type restrictions):
+      #   direct :fresh_user_avatar, User do |user, options|
+      #     route_for :user_avatar, user.avatar_token, v: user.updated_at.to_fs(:number)
+      #   end
+      # Captured blocks don't inherit the `with drawer yield` receiver,
+      # so blocks call the top-level `route_for`. One positional argument
+      # max — captured Crystal blocks have a fixed arity.
+      macro direct(name, arg_type = nil, &block)
+        {% if block.args.size == 1 %}
+          __add_direct({{name}}, CRails::Routes::DirectOptionsRoute.new(
+            ->({{ block.args[0] }} : Hash(String, CRails::Routes::RouteArg)) {
+              {{ block.body }}
+            }))
+        {% elsif block.args.size == 2 %}
+          {% unless arg_type %}
+            {% raise "direct blocks taking |arg, options| need the arg type: direct :helper, User do |user, options|" %}
+          {% end %}
+          __add_direct({{name}}, CRails::Routes::DirectWithArgRoute({{arg_type}}).new(
+            ->({{ block.args[0] }} : {{arg_type}}, {{ block.args[1] }} : Hash(String, CRails::Routes::RouteArg)) {
+              {{ block.body }}
+            }))
+        {% else %}
+          {% raise "direct block must take |options| or |arg, options| parameters" %}
+        {% end %}
+      end
+
+      def __add_direct(name : String | Symbol, route : DirectRoute) : Nil
+        @set.direct_routes[name.to_s] = route
       end
 
       # `openapi "/openapi.json"` — mount the built-in document endpoint
@@ -335,8 +423,8 @@ module CRails
       # member scope inside a `resources` block; `defaults:` adds default
       # params; a controller with a leading "/" opts out of `scope module:`.
       {% for verb in %w(get post put patch delete) %}
-        def {{verb.id}}(path : String, *, file : String = __FILE__, line : Int32 = __LINE__, **opts) : Nil
-          add({{ verb.upcase }}, path, opts, file, line)
+        def {{verb.id}}(path : String | Symbol, *, file : String = __FILE__, line : Int32 = __LINE__, **opts) : Nil
+          add({{ verb.upcase }}, path.to_s, opts, file, line)
         end
       {% end %}
 
