@@ -260,6 +260,45 @@ describe "ActionDispatch::Cookies oracle (actionpack 8.1.4)" do
     render_cookie(ok ? "ok" : "bad").should eq(expected["ck_permanent_plain"])
   end
 
+  # --- hash form (jar[name] = { value:, ... }) + signed.permanent ------
+
+  it "ck_hash_signed_expiring" do
+    line = set_cookie { |j| j.signed[:login] = { value: "XJ-122", expires: Time.utc(2030, 10, 15, 5, 0, 0) } }
+    line.inspect.should eq(expected["ck_hash_signed_expiring"])
+  end
+
+  it "ck_signed_permanent_hash" do
+    line = set_cookie do |j|
+      j.signed.permanent[:session_token] = { value: "tok-1", httponly: true, same_site: :lax }
+    end
+    expires = line.match(/expires=(.*?)(;|\z)/).try(&.[1]).not_nil!
+    exp_time = Time::Format::HTTP_DATE.parse(expires)
+    envelope = JSON.parse(Base64.decode_string(set_cookie_value(line).split("--").first))
+    rails = envelope["_rails"]
+    # в отличие от .permanent.signed, конверт несёт message-level exp
+    ok = exp_time > Time.utc && exp_time < Time.utc + 20.years + 1.day &&
+         !rails["exp"].raw.nil? && rails["pur"] == "cookie.session_token" &&
+         line.includes?("httponly") && line.includes?("samesite=lax")
+    render_cookie(ok ? "ok" : "bad").should eq(expected["ck_signed_permanent_hash"])
+  end
+
+  it "ck_signed_permanent_hash_read" do
+    wire = set_cookie_value(set_cookie do |j|
+      j.signed.permanent[:session_token] = { value: "tok-1", httponly: true, same_site: :lax }
+    end)
+    value = read_cookie(cookie_header("session_token", wire)) { |j| j.signed[:session_token] }
+    render_cookie(value).should eq(expected["ck_signed_permanent_hash_read"])
+  end
+
+  it "ck_permanent_int" do
+    line = set_cookie { |j| j.permanent[:last_room] = 42 }
+    expires = line.match(/expires=(.*?)(;|\z)/).try(&.[1]).not_nil!
+    exp_time = Time::Format::HTTP_DATE.parse(expires)
+    ok = line.starts_with?("last_room=42;") &&
+         exp_time > Time.utc && exp_time < Time.utc + 20.years + 1.day
+    render_cookie(ok ? "ok" : "bad").should eq(expected["ck_permanent_int"])
+  end
+
   # --- реверс: порт пишет → оригинальный гем читает --------------------
 
   it "reverse roundtrip read by original gem" do
@@ -278,6 +317,10 @@ describe "ActionDispatch::Cookies oracle (actionpack 8.1.4)" do
     reverse_cases << {"token", "encrypted", %q("top secret"), wire}
     wire = set_cookie_value(set_cookie { |j| j.permanent.signed["remember_me"] = 42 })
     reverse_cases << {"remember_me", "signed", "42", wire}
+    wire = set_cookie_value(set_cookie do |j|
+      j.signed.permanent["session_token"] = { value: "tok-1", httponly: true, same_site: :lax }
+    end)
+    reverse_cases << {"session_token", "signed", %q("tok-1"), wire}
 
     path = File.join(Dir.tempdir, "crails_verify_cookies_#{Random::Secure.hex(8)}.tsv")
     File.write(path, reverse_cases.map(&.join("\t")).join("\n"))

@@ -1,5 +1,5 @@
 name: action_pack_cr
-version: 0.2.17
+version: 0.2.18
 crystal: ">= 1.21.0"
 dependencies:
   attr_reader_cr:

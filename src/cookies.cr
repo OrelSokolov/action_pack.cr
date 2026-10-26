@@ -12,9 +12,14 @@
 #   внутри шифротекста;
 # - purpose изоляция "cookie.#{name}", чтение с fallback-ом без purpose
 #   (как AbstractCookieJar#[] в геме);
-# - `cookies.permanent` (+ цепочки .permanent.signed) — cookie-level
-#   expires = 20 лет; message-level exp при этом НЕ ставится (commit
-#   подписанного значения идёт раньше, чем permanent выставит expires).
+# - `cookies.permanent` (+ цепочки .permanent.signed / .signed.permanent) —
+#   cookie-level expires = 20 лет. Подпись/шифрование делаются в commit-фазе
+#   цепочки (child → parent), поэтому порядок звеньев влияет на конверт, как
+#   в геме: cookies.permanent.signed[...] — message-level exp nil (подпись
+#   коммитится раньше permanent-а), cookies.signed.permanent[...] — конверт
+#   несёт exp = 20 лет (permanent успевает влить expires до подписи);
+# - hash-форма записи `jar[name] = { value:, expires:, httponly:, ... }`
+#   (Rails CookieJar#[]= c хешем опций) и Symbol-ключи имён.
 #
 # Отклонения от гема: Set-Cookie пишется прямо в response.headers (нет
 # отложенного jar.commit); secure-cookie поверх plain HTTP дропается по
@@ -65,6 +70,10 @@ module ActionController
   # Атрибуты Set-Cookie для одной cookie (value — уже wire-строка джарба).
   class CookieOptions
     attr_accessor value : String
+    # Сырое (до трансформации) значение signed/encrypted джарбов: подпись/
+    # шифрование происходят в commit-фазе цепочки, когда типизированное
+    # значение ещё нужно (Int32 и "123" дают разный wire).
+    attr_accessor raw : CookiePayload?
     attr_accessor expires : Time?
     attr_accessor path : String = "/"
     attr_accessor domain : String?
@@ -82,6 +91,37 @@ module ActionController
                         Array(String | Symbol) |
                         Hash(String, ActiveSupport::MessageVerifier::MetadataScalar)
 
+  # --- hash-форма записи (Rails `cookies[name] = { value:, ... }`) ------
+  # Скалярное сужение :value и мягкое извлечение опций: отсутствующие в
+  # конкретном named tuple ключи просто не входят в union значения, поэтому
+  # каждый геттер принимает union целиком и сужает через is_a?.
+
+  def self.cookie_hash_value(v) : CookiePayload
+    case v
+    when String, Int32, Int64, Bool then v
+    else
+      raise ArgumentError.new(
+        "cookie hash form: :value must be a String/Int/Bool scalar, got #{v.class}")
+    end
+  end
+
+  def self.cookie_hash_expires(v) : Time?
+    v.is_a?(Time) ? v : nil
+  end
+
+  def self.cookie_hash_str(v) : String?
+    v.is_a?(String) ? v : nil
+  end
+
+  def self.cookie_hash_bool(v) : Bool
+    v.is_a?(Bool) ? v : false
+  end
+
+  def self.cookie_hash_symbol(v) : Symbol?
+    v.is_a?(Symbol) ? v : nil
+  end
+
+
   class Cookies
     MAX_COOKIE_SIZE = 4096
 
@@ -96,37 +136,57 @@ module ActionController
       end
     end
 
-    def [](name : String) : String?
-      @jar[name]?
+    def [](name : String | Symbol) : String?
+      @jar[name.to_s]?
     end
 
-    def []?(name : String) : String?
-      @jar[name]?
+    def []?(name : String | Symbol) : String?
+      @jar[name.to_s]?
     end
 
-    def []=(name : String, value : String) : Cookies
+    def []=(name : String | Symbol, value : String) : Cookies
       set(name, value)
       self
     end
 
+    # Rails hash-форма: cookies[name] = { value: "v", expires:, httponly: }.
+    def []=(name : String | Symbol, options : NamedTuple) : Nil
+      set(name, options)
+    end
+
     # Устанавливает cookie с опциями (Rails-семантика cookies[]= c хешем
-    # опций): expires/path/domain/secure/httponly/same_site.
-    def set(name : String, value : String, expires : Time? = nil,
+    # опций): expires/path/domain/secure/httponly/same_site. Скалярное
+    # значение (Int/Bool) пишется своим to_s, как wire гема.
+    def set(name : String | Symbol, value : CookiePayload, expires : Time? = nil,
             path : String = "/", domain : String? = nil, secure : Bool = false,
             httponly : Bool = false, same_site : Symbol? = nil) : Nil
-      options = CookieOptions.new(value)
+      options = CookieOptions.new(ActionController.cookie_hash_value(value).to_s)
       options.expires = expires
       options.path = path
       options.domain = domain
       options.secure = secure
       options.httponly = httponly
       options.same_site = same_site
-      __set(name, options)
+      __set(name.to_s, options)
+    end
+
+    # Hash-форма set: value обязателен, остальные ключи — Set-Cookie-опции.
+    def set(name : String | Symbol, options : NamedTuple) : Nil
+      value = options[:value]?
+      raise ArgumentError.new("cookies[#{name}] = {...}: :value is required") if value.nil?
+      set(name, ActionController.cookie_hash_value(value).to_s,
+        expires: ActionController.cookie_hash_expires(options[:expires]?),
+        path: ActionController.cookie_hash_str(options[:path]?) || "/",
+        domain: ActionController.cookie_hash_str(options[:domain]?),
+        secure: ActionController.cookie_hash_bool(options[:secure]?),
+        httponly: ActionController.cookie_hash_bool(options[:httponly]?),
+        same_site: ActionController.cookie_hash_symbol(options[:same_site]?))
     end
 
     # Удаляет cookie у клиента (значение "" + expires в прошлом).
-    def delete(name : String, path : String = "/",
+    def delete(name : String | Symbol, path : String = "/",
                domain : String? = nil) : Nil
+      name = name.to_s
       return unless @jar.has_key?(name)
       @jar.delete(name)
       options = CookieOptions.new("")
@@ -135,8 +195,8 @@ module ActionController
       __write_delete(name, options)
     end
 
-    def has_key?(name : String) : Bool
-      @jar.has_key?(name)
+    def has_key?(name : String | Symbol) : Bool
+      @jar.has_key?(name.to_s)
     end
 
     def signed : SignedCookieJar
@@ -238,19 +298,39 @@ module ActionController
 
     attr_reader :parent
 
-    def [](name : String) : JSON::Any | String | Nil
-      if (data = base[name]?)
-        result = parse(name, data, "cookie.#{name}")
-        result.nil? ? parse(name, data, nil) : result
+    def [](name : String | Symbol) : JSON::Any | String | Nil
+      if (data = base[name.to_s]?)
+        result = parse(name.to_s, data, "cookie.#{name}")
+        result.nil? ? parse(name.to_s, data, nil) : result
       end
     end
 
-    def []?(name : String) : JSON::Any | String | Nil
+    def []?(name : String | Symbol) : JSON::Any | String | Nil
       self[name]
     end
 
-    def []=(name : String, value) : Nil
+    def []=(name : String | Symbol, value) : Nil
       set(name, value)
+    end
+
+    # Rails hash-форма: jar[name] = { value:, expires:, httponly:, ... }
+    # (например cookies.signed.permanent[:k] = { value:, same_site: }).
+    def []=(name : String | Symbol, options : NamedTuple) : Nil
+      set(name, options)
+    end
+
+    # Hash-форма set: :value обязателен, остальные ключи — Set-Cookie-опции;
+    # после извлечения вызывается kwargs-форма set конкретного джарба.
+    def set(name : String | Symbol, options : NamedTuple) : Nil
+      value = options[:value]?
+      raise ArgumentError.new("cookies[#{name}] = {...}: :value is required") if value.nil?
+      set(name.to_s, ActionController.cookie_hash_value(value),
+        expires: ActionController.cookie_hash_expires(options[:expires]?),
+        path: ActionController.cookie_hash_str(options[:path]?) || "/",
+        domain: ActionController.cookie_hash_str(options[:domain]?),
+        secure: ActionController.cookie_hash_bool(options[:secure]?),
+        httponly: ActionController.cookie_hash_bool(options[:httponly]?),
+        same_site: ActionController.cookie_hash_symbol(options[:same_site]?))
     end
 
     # Цепочки джарбов: cookies.permanent.signed / cookies.signed.permanent...
@@ -318,15 +398,23 @@ module ActionController
         force_legacy_metadata_serializer: true)
     end
 
-    def set(name : String, value : CookiePayload, expires : Time? = nil,
+    def set(name : String | Symbol, value : CookiePayload, expires : Time? = nil,
             path : String = "/", domain : String? = nil, secure : Bool = false,
             httponly : Bool = false, same_site : Symbol? = nil) : Nil
       options = CookieOptions.new("")
       apply_options(options, expires, path, domain, secure, httponly, same_site)
+      # подпись — в commit: в цепочке cookies.signed.permanent[...] parent-
+      # джарб должен успеть влить expires ДО подписи (как в геме)
+      options.raw = value
+      __set(name.to_s, options)
+    end
+
+    protected def commit(name : String, options : CookieOptions) : Nil
+      value = options.raw
+      raise RuntimeError.new("signed cookie #{name}: raw value is missing") unless value
       options.value = @verifier.generate(value,
         purpose: "cookie.#{name}", expires_at: options.expires)
       check_for_overflow!(name, options)
-      __set(name, options)
     end
 
     protected def parse(name : String, data : String,
@@ -345,15 +433,22 @@ module ActionController
         force_legacy_metadata_serializer: true)
     end
 
-    def set(name : String, value : CookiePayload, expires : Time? = nil,
+    def set(name : String | Symbol, value : CookiePayload, expires : Time? = nil,
             path : String = "/", domain : String? = nil, secure : Bool = false,
             httponly : Bool = false, same_site : Symbol? = nil) : Nil
       options = CookieOptions.new("")
       apply_options(options, expires, path, domain, secure, httponly, same_site)
+      # шифрование — в commit (см. SignedCookieJar#set)
+      options.raw = value
+      __set(name.to_s, options)
+    end
+
+    protected def commit(name : String, options : CookieOptions) : Nil
+      value = options.raw
+      raise RuntimeError.new("encrypted cookie #{name}: raw value is missing") unless value
       options.value = @encryptor.encrypt_and_sign(value,
         purpose: "cookie.#{name}", expires_at: options.expires)
       check_for_overflow!(name, options)
-      __set(name, options)
     end
 
     protected def parse(name : String, data : String,
@@ -364,20 +459,24 @@ module ActionController
     end
   end
 
-  # cookies.permanent — expires = 20 лет (cookie-level; message-level exp
-  # не затрагивает — см. шапку файла).
+  # cookies.permanent — expires = 20 лет. Rails PermanentCookieJar вливает
+  # expires в запись до родителя, поэтому в цепочке cookies.signed.
+  # permanent[...] подписанный конверт несёт message-level exp = 20 лет,
+  # а в cookies.permanent.signed[...] подпись коммитируется раньше и exp
+  # конверта остаётся nil (обе цепочки — oracle/cookies_expected.yml).
   class PermanentCookieJar < AbstractCookieJar
-    def set(name : String, value : String, expires : Time? = nil,
+    def set(name : String | Symbol, value : CookiePayload, expires : Time? = nil,
             path : String = "/", domain : String? = nil, secure : Bool = false,
             httponly : Bool = false, same_site : Symbol? = nil) : Nil
-      options = CookieOptions.new(value)
+      options = CookieOptions.new(ActionController.cookie_hash_value(value).to_s)
       apply_options(options, expires, path, domain, secure, httponly, same_site)
-      __set(name, options)
+      # raw нужен дочернему signed/encrypted-звену (оно коммитит позже)
+      options.raw = value
+      __set(name.to_s, options)
     end
 
-    protected def __set(name : String, options : CookieOptions) : Nil
+    protected def commit(name : String, options : CookieOptions) : Nil
       options.expires = Time.utc + 20.years
-      @parent.__set(name, options)
     end
   end
 

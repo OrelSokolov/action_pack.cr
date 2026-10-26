@@ -192,3 +192,39 @@ case_run("ck_permanent_plain") {
   expires = Time.httpdate(line[/expires=(.*?)(;|\z)/, 1])
   expires > Time.now && expires < Time.now + 20.years + 86400 ? "ok" : "bad"
 }
+
+# --- hash form (cookies[name] = { value:, ... }) + signed.permanent ----
+
+case_run("ck_hash_signed_expiring") {
+  set_cookie { |j| j.signed[:login] = { value: "XJ-122", expires: Time.utc(2030, 10, 15, 5, 0, 0) } }
+}
+case_run("ck_signed_permanent_hash") {
+  # the oracle app's session cookie write (authentication.rb):
+  # cookies.signed.permanent[:session_token] = { value:, httponly:, same_site: }
+  line = set_cookie { |j|
+    j.signed.permanent[:session_token] = { value: "tok-1", httponly: true, same_site: :lax }
+  }
+  expires = line[/expires=(.*?)(;|\z)/, 1]
+  exp_time = Time.httpdate(expires)
+  envelope = JSON.parse(Base64.decode64(set_cookie_value(line).split("--").first))
+  rails = envelope["_rails"]
+  if exp_time > Time.now && exp_time < Time.now + 20.years + 86400 &&
+     !rails["exp"].nil? && rails["pur"] == "cookie.session_token" &&
+     line.include?("httponly") && line.include?("samesite=lax")
+    "ok"
+  else
+    "bad"
+  end
+}
+case_run("ck_signed_permanent_hash_read") {
+  wire = set_cookie_value(set_cookie { |j|
+    j.signed.permanent[:session_token] = { value: "tok-1", httponly: true, same_site: :lax }
+  })
+  read_cookie(cookie_header(["session_token", wire]), :session_token) { |j| j.signed[:session_token] }
+}
+case_run("ck_permanent_int") {
+  # tracked_room_visit.rb: cookies.permanent[:last_room] = @room.id
+  line = set_cookie { |j| j.permanent[:last_room] = 42 }
+  expires = Time.httpdate(line[/expires=(.*?)(;|\z)/, 1])
+  line.start_with?("last_room=42;") && expires > Time.now && expires < Time.now + 20.years + 86400 ? "ok" : "bad"
+}

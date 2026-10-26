@@ -97,7 +97,7 @@ Run the suite with `make spec` (or
 | Feature | Original | Port | Status |
 |---|---|---|---|
 | `cookies.set` with `expires:/path:/domain:/secure:/httponly:/same_site:`, `cookies.delete` | ✅ | Rack-identical Set-Cookie attribute order/format | ✅ |
-| `cookies.signed` / `cookies.encrypted` / `cookies.permanent` (+ chains) | ✅ | Byte-identical wire format (MessageVerifier SHA1 / AES-256-GCM, legacy `{"_rails":...}` envelope), purpose isolation, `CookieOverflow` > 4096 B | ✅ |
+| `cookies.signed` / `cookies.encrypted` / `cookies.permanent` (+ chains) | ✅ | Byte-identical wire format (MessageVerifier SHA1 / AES-256-GCM, legacy `{"_rails":...}` envelope), purpose isolation, `CookieOverflow` > 4096 B; hash form `jar[name] = { value:, expires:, ... }` and Symbol keys (`.signed.permanent` carries a message-level `exp`, `.permanent.signed` does not — both gem-exact) | ✅ |
 | session / flash in signed cookie | ✅ | With `SECRET_KEY_BASE` set; legacy Base64-JSON always readable (transition mode) | 🔶 |
 | `flash[:notice]/now/keep/discard`, `add_flash_types` | ✅ | Same | ✅ |
 
