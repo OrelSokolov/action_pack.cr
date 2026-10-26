@@ -54,6 +54,12 @@ module CRails
       attr_reader controller : String # e.g. "welcome"
       attr_reader action : String     # e.g. "index"
       attr_reader name : String?      # e.g. "root"
+      # RESTful routes carry Rails' optional format segment `(.:format)`:
+      # they match "/account" and "/account.<anything>" (the suffix lands
+      # in params["format"]), and a leftover positional helper arg appends
+      # with the "." separator (polymorphic `form_with model: @account`
+      # → account_path(account.to_param) → "/account.<id>").
+      attr_reader optional_format : Bool
       # `scope defaults: { ... }` / `resources defaults: { ... }` — params
       # filled in when the path doesn't set them (segment params win).
       attr_reader defaults : Hash(String, String)
@@ -65,7 +71,7 @@ module CRails
 
       def initialize(@verb : String, pattern : String, to : String, @name : String? = nil,
                      @defaults : Hash(String, String) = Hash(String, String).new,
-                     @source : String? = nil)
+                     @source : String? = nil, @optional_format : Bool = false)
         @segments = pattern.split("/").reject(&.empty?)
         @controller, @action = to.split("#", 2)
       end
@@ -137,6 +143,12 @@ module CRails
           end
         end
         path = "/" + parts.join("/")
+        # Leftover args on a RESTful route fill the optional :format
+        # segment with the "." separator (Rails Journey semantics); any
+        # args beyond that keep the query-string fallback.
+        if route.optional_format && !rest.empty?
+          path += "." + URI.encode_www_form(rest.shift)
+        end
         unless rest.empty?
           query = rest.map { |value| "#{URI.encode_www_form(value)}=#{URI.encode_www_form(value)}" }.join("&")
           path += "?" + query
@@ -158,6 +170,18 @@ module CRails
       end
 
       private def match_route?(route : Route, verb : String, parts : Array(String)) : Hash(String, String)?
+        # Optional format segment `(.:format)`: "/account.1" first tries
+        # the stripped form "/account" + params["format"] = "1"; the plain
+        # path still matches below when there is no dot.
+        if route.optional_format && parts.size == route.segments.size &&
+           (dot = parts.last.rindex('.'))
+          stripped = parts.dup
+          stripped[-1] = parts.last[0...dot]
+          if (params = match_route?(route, verb, stripped))
+            params["format"] = URI.decode_www_form(parts.last[(dot + 1)..])
+            return params
+          end
+        end
         return nil unless route.verb == verb
         return nil unless route.segments.size == parts.size
         params = {} of String => String
@@ -311,26 +335,26 @@ module CRails
         source = "#{file}:#{line}"
         wanted = wanted_actions(opts, RESOURCE_ACTIONS)
         if wanted.includes?("index")
-          emit("GET", base, "#{ctrl}#index", compose_name(as_name), defaults, source)
+          emit("GET", base, "#{ctrl}#index", compose_name(as_name), defaults, source, true)
         end
         if wanted.includes?("new")
-          emit("GET", base + ["new"], "#{ctrl}#new", "new_" + (@name_prefix + [singular]).join("_"), defaults, source)
+          emit("GET", base + ["new"], "#{ctrl}#new", "new_" + (@name_prefix + [singular]).join("_"), defaults, source, true)
         end
         if wanted.includes?("edit")
-          emit("GET", member + ["edit"], "#{ctrl}#edit", "edit_" + (@name_prefix + [singular]).join("_"), defaults, source)
+          emit("GET", member + ["edit"], "#{ctrl}#edit", "edit_" + (@name_prefix + [singular]).join("_"), defaults, source, true)
         end
         if wanted.includes?("show")
-          emit("GET", member, "#{ctrl}#show", compose_name(singular), defaults, source)
+          emit("GET", member, "#{ctrl}#show", compose_name(singular), defaults, source, true)
         end
         if wanted.includes?("create")
-          emit("POST", base, "#{ctrl}#create", nil, defaults, source)
+          emit("POST", base, "#{ctrl}#create", compose_name(as_name), defaults, source, true)
         end
         if wanted.includes?("update")
-          emit("PATCH", member, "#{ctrl}#update", nil, defaults, source)
-          emit("PUT", member, "#{ctrl}#update", nil, defaults, source)
+          emit("PATCH", member, "#{ctrl}#update", compose_name(singular), defaults, source, true)
+          emit("PUT", member, "#{ctrl}#update", compose_name(singular), defaults, source, true)
         end
         if wanted.includes?("destroy")
-          emit("DELETE", member, "#{ctrl}#destroy", nil, defaults, source)
+          emit("DELETE", member, "#{ctrl}#destroy", compose_name(singular), defaults, source, true)
         end
 
         saved = snapshot
@@ -370,23 +394,23 @@ module CRails
         source = "#{file}:#{line}"
         wanted = wanted_actions(opts, SINGULAR_ACTIONS)
         if wanted.includes?("new")
-          emit("GET", base + ["new"], "#{ctrl}#new", "new_" + (@name_prefix + [as_name]).join("_"), defaults, source)
+          emit("GET", base + ["new"], "#{ctrl}#new", "new_" + (@name_prefix + [as_name]).join("_"), defaults, source, true)
         end
         if wanted.includes?("create")
-          emit("POST", base, "#{ctrl}#create", nil, defaults, source)
+          emit("POST", base, "#{ctrl}#create", compose_name(as_name), defaults, source, true)
         end
         if wanted.includes?("edit")
-          emit("GET", base + ["edit"], "#{ctrl}#edit", "edit_" + (@name_prefix + [as_name]).join("_"), defaults, source)
+          emit("GET", base + ["edit"], "#{ctrl}#edit", "edit_" + (@name_prefix + [as_name]).join("_"), defaults, source, true)
         end
         if wanted.includes?("update")
-          emit("PATCH", base, "#{ctrl}#update", nil, defaults, source)
-          emit("PUT", base, "#{ctrl}#update", nil, defaults, source)
+          emit("PATCH", base, "#{ctrl}#update", compose_name(as_name), defaults, source, true)
+          emit("PUT", base, "#{ctrl}#update", compose_name(as_name), defaults, source, true)
         end
         if wanted.includes?("show")
-          emit("GET", base, "#{ctrl}#show", compose_name(as_name), defaults, source)
+          emit("GET", base, "#{ctrl}#show", compose_name(as_name), defaults, source, true)
         end
         if wanted.includes?("destroy")
-          emit("DELETE", base, "#{ctrl}#destroy", nil, defaults, source)
+          emit("DELETE", base, "#{ctrl}#destroy", compose_name(as_name), defaults, source, true)
         end
 
         saved = snapshot
@@ -451,8 +475,10 @@ module CRails
       end
 
       private def emit(verb : String, segments : Array(String), to : String,
-                       name : String?, defaults : Hash(String, String), source : String? = nil) : Nil
-        @set.routes << Route.new(verb, "/" + segments.join("/"), to, name, defaults, source)
+                       name : String?, defaults : Hash(String, String), source : String? = nil,
+                       optional_format : Bool = false) : Nil
+        @set.routes << Route.new(verb, "/" + segments.join("/"), to, name, defaults,
+          source, optional_format)
       end
 
       private def drop_member_segment : Nil

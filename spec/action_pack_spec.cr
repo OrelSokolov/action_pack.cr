@@ -178,10 +178,10 @@ describe "CRails::Routes" do
       {"GET", "/posts/new", "posts", "new", "new_post"},
       {"GET", "/posts/:id/edit", "posts", "edit", "edit_post"},
       {"GET", "/posts/:id", "posts", "show", "post"},
-      {"POST", "/posts", "posts", "create", nil},
-      {"PATCH", "/posts/:id", "posts", "update", nil},
-      {"PUT", "/posts/:id", "posts", "update", nil},
-      {"DELETE", "/posts/:id", "posts", "destroy", nil},
+      {"POST", "/posts", "posts", "create", "posts"},
+      {"PATCH", "/posts/:id", "posts", "update", "post"},
+      {"PUT", "/posts/:id", "posts", "update", "post"},
+      {"DELETE", "/posts/:id", "posts", "destroy", "post"},
     ])
     set.match("GET", "/posts").not_nil!.route.name.should eq("posts")
     set.match("GET", "/posts/42").not_nil!.params["id"].should eq("42")
@@ -224,7 +224,7 @@ describe "CRails::Routes" do
     table.should contain({"GET", "/rooms/:id", "rooms", "show", "room"})
     table.should contain({"GET", "/rooms/:id/messages", "messages", "index", "room_messages"})
     table.should contain({"GET", "/rooms/:id/messages/:message_id/edit", "messages", "edit", "edit_room_message"})
-    table.should contain({"DELETE", "/rooms/:id/messages/:message_id", "messages", "destroy", nil})
+    table.should contain({"DELETE", "/rooms/:id/messages/:message_id", "messages", "destroy", "room_message"})
     table.should contain({"GET", "/rooms/:id/involvement", "rooms", "involvement", nil})
     table.should_not contain({"GET", "/rooms/:id/messages/new", "messages", "new", "new_room_message"})
     match = set.match("GET", "/rooms/1/messages/42").not_nil!
@@ -348,7 +348,7 @@ describe "CRails::Routes::UrlHelpers" do
     host.h_room_path(1, v: 3).should eq("/rooms/1?v=3")
     host.h_room_path(1, v: 3, anchor: "m2").should eq("/rooms/1?v=3#m2")
     # extra positional args go to the query string (key = value)
-    host.h_room_path(1, 2).should eq("/rooms/1?2=2")
+    host.h_room_path(1, 2).should eq("/rooms/1.2")
     # to_param objects
     host.h_room_path(UrlHelperHost::ParamModel.new).should eq("/rooms/7")
 
