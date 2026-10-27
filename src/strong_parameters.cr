@@ -74,6 +74,7 @@ module ActionController
     private def self.convert(v) : Value
       case v
       when Parameters then v
+      when UploadedFile then v
       when Scalar   then v.as(Scalar)
       when Array    then v.map { |e| (e.as?(Scalar) || e.to_s).as(Scalar) }
       when Hash     then from(v.as(Hash))

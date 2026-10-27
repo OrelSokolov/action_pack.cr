@@ -64,4 +64,20 @@ describe "multipart file params" do
     file = permitted["attachment"].as(ActionController::UploadedFile)
     file.filename.should eq("b.txt")
   end
+
+  it "parses an unselected file field (filename=\"\") as nil, like Rack" do
+    boundary = "----Z"
+    body = "--#{boundary}\r\n" \
+           "Content-Disposition: form-data; name=\"message[attachment]\"; filename=\"\"\r\n" \
+           "Content-Type: application/octet-stream\r\n\r\n" \
+           "\r\n" \
+           "--#{boundary}--\r\n"
+    context = multipart_context(body, boundary)
+    controller = UploadsController.new(context)
+    controller.__set_params({} of String => String)
+
+    message = controller.params["message"].as(ActionController::Parameters)
+    message.has_key?("attachment").should be_true
+    message["attachment"].should be_nil
+  end
 end

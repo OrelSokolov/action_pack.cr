@@ -427,11 +427,17 @@ module ActionController
             content = piece[(sep + 4)..]
             name = headers[/\bname="([^"]*)"/, 1]?
             next unless name
-            if (filename = headers[/\bfilename="([^"]*)"/, 1]?) && !filename.empty?
-              # File parts land in params as UploadedFile (Rails semantics);
-              # binary body — only byte-safe String ops (see comment above).
-              ctype = headers[/content-type:\s*([^\r\n]+)/i, 1]?.try(&.strip) || "application/octet-stream"
-              __assign_form_key(raw, name, UploadedFile.new(filename, ctype, content))
+            if (filename = headers[/\bfilename="([^"]*)"/, 1]?)
+              if filename.empty?
+                # Unselected file input (filename=""): Rack/Rails expose the
+                # key as nil, not as an empty string.
+                __assign_form_key(raw, name, nil)
+              else
+                # File parts land in params as UploadedFile (Rails semantics);
+                # binary body — only byte-safe String ops (see comment above).
+                ctype = headers[/content-type:\s*([^\r\n]+)/i, 1]?.try(&.strip) || "application/octet-stream"
+                __assign_form_key(raw, name, UploadedFile.new(filename, ctype, content))
+              end
             else
               __assign_form_key(raw, name, content)
             end
