@@ -520,7 +520,7 @@ module ActionController
         response.print content
       else
         content = __render_view(action)
-        body = __layout? ? __render_layout { content.to_s } : content.to_s
+        body = __layout?(action) ? __render_layout { content.to_s } : content.to_s
         response.headers["Content-Type"] = "text/html; charset=utf-8"
         __verify_same_origin_request
         response.print body
@@ -534,8 +534,86 @@ module ActionController
     def __verify_same_origin_request : Nil
     end
 
-    def __layout? : Bool
-      {{ (`(test -f #{env("CRAILS_VIEWS") || "app/views"}/layouts/application.html.erb && echo yes) || true`) != "" }}
+    # Render the action's HTML template wrapped in the layout — the
+    # explicit counterpart of __default_render's HTML branch, for actions
+    # that build the response body directly (cache_page blocks:
+    # `Campfire::ResponseCache::Page.new(__render_page("index"))`).
+    def __render_page(action : String) : String
+      content = __render_view(action).to_s
+      __layout?(action) ? __render_layout { content } : content
+    end
+
+    # Pass-through for classes the layout is not compiled into
+    # (`layout false` total opt-out, no layouts/application.html.erb).
+    def __render_layout(& : -> String) : String
+      yield
+    end
+
+    def __layout?(action : String) : Bool
+      {{ (`(test -f #{env("CRAILS_VIEWS") || "app/views"}/layouts/application.html.erb && echo yes) || true`) != "" }} &&
+        __crails_layout_enabled?(action)
+    end
+
+    # `layout false` (see the macro below) overrides this per controller;
+    # the Base default opts every action in (Rails: layout auto-detection).
+    def __crails_layout_enabled?(action : String) : Bool
+      true
+    end
+
+    # Rails layout declaration. Only the opt-out form is supported (the
+    # port has a single application layout):
+    #
+    #   layout false                  — no layout for any action
+    #   layout false, only: [:index]  — no layout for the listed actions
+    #   layout false, except: [:show] — no layout except the listed actions
+    #
+    # Redefines `__crails_layout_enabled?` in the declaring class (a class
+    # body definition shadows the Base default), so the runtime check in
+    # `__layout?` picks it up through normal dispatch.
+    macro layout(name, only = nil, except = nil)
+      {% if name != false %}
+        {% raise "layout #{name}: only `layout false` is supported (per-controller layout names have no port yet)" %}
+      {% end %}
+      {% if only && except %}
+        {% raise "layout: only: and except: are mutually exclusive" %}
+      {% end %}
+      {% begin %}
+        {% actions = [] of String %}
+        {% if only %}
+          {% if only.is_a?(ArrayLiteral) %}
+            {% for entry in only.elements %}{% actions << entry.id.stringify %}{% end %}
+          {% else %}
+            {% actions << only.id.stringify %}
+          {% end %}
+        {% end %}
+        {% excluded = [] of String %}
+        {% if except %}
+          {% if except.is_a?(ArrayLiteral) %}
+            {% for entry in except.elements %}{% excluded << entry.id.stringify %}{% end %}
+          {% else %}
+            {% excluded << except.id.stringify %}
+          {% end %}
+        {% end %}
+        def __crails_layout_enabled?(action : String) : Bool
+          {% if only %}
+            !({{ actions }}.includes?(action))
+          {% elsif except %}
+            {{ excluded }}.includes?(action)
+          {% else %}
+            false
+          {% end %}
+        end
+
+        # Total opt-out marker: the end-of-program codegen skips compiling
+        # the application layout into this class altogether (controllers
+        # outside the app — e.g. CRails::OpenApiController — may lack the
+        # layout's helper methods, so the compiled layout would not type).
+        {% unless only || except %}
+          def __crails_layout_disabled? : Bool
+            true
+          end
+        {% end %}
+      {% end %}
     end
 
     macro inherited
@@ -861,15 +939,16 @@ macro finished
 
         {% layout_path = root + "/layouts/application.html.erb" %}
         {% if (`(test -f #{layout_path} && echo yes) || true`) != "" %}
-          compile_layout "__av_layout", {{ layout_path }}
+          # `layout false` (total opt-out) skips the compile: the class may
+          # not have the layout's helper methods (only:/except: keep the
+          # compile — some actions still render through the layout).
+          {% unless t.has_method?(:__crails_layout_disabled?) %}
+            compile_layout "__av_layout", {{ layout_path }}
 
-          def __render_layout(& : -> String) : String
-            __av_layout { yield }.to_s
-          end
-        {% else %}
-          def __render_layout(& : -> String) : String
-            yield
-          end
+            def __render_layout(& : -> String) : String
+              __av_layout { yield }.to_s
+            end
+          {% end %}
         {% end %}
       end
     {% end %}

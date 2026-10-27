@@ -208,6 +208,10 @@ end
 # "crails/open_api" — mount via `openapi "/openapi.json"` in the
 # routes drawer).
 class CRails::OpenApiController < ActionController::Base
+  # JSON-only endpoint: never wrapped in layouts/application.html.erb
+  # (an app-level layout would otherwise compile into this class too).
+  layout false
+
   def show
     render json: CRails::OpenAPI.document
   end
